@@ -1063,3 +1063,58 @@ index 3d9be9e5c065..a69a34ece51d 100644
 -- 
 2.55.0
 
+From 3fc2b84523fa00122b6b44ebe139d28b1842891f Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:39:38 -0600
+Subject: [PATCH] platform/x86: int3472: discrete: Set error state for SP9 GPIO
+ types
+
+The Surface Pro 9 handling adds GPIO types 0x08 and 0x11 to
+skl_int3472_handle_gpio_resources(), but leaves two variables
+uninitialised that are used after the switch:
+
+- When registering the regulator for type 0x08 fails, err_msg is never
+  set, so dev_err_probe() is passed an uninitialised format pointer.
+
+- Type 0x11 sets neither ret nor err_msg, so whether the GPIO is put
+  and whether probing fails depends on whatever ret happens to contain.
+  If the GPIO is kept, nothing ever releases it, and a later rebind of
+  the driver fails to request it again.
+
+Set err_msg on the 0x08 failure path, replacing the separate error
+message there, which printed the wrong values. For type 0x11, set ret
+to 1 so the GPIO is released after being requested (which drives it
+inactive) and the remaining resources are still handled. Both were
+found with -Wmaybe-uninitialized, which the kernel build disables by
+default.
+
+This fixes the patch "Add camera support for Surface Pro 9" in the
+cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index b2a54733df20..6d65adb0a3a4 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -395,10 +395,12 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 			 con_id, NULL);
+ 		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
+ 		    if (ret) {
+-			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
++			err_msg = "Failed to register regulator\n";
+ 		    }
+ 		    break;
+ 		case 0x11:
++		    /* Not used yet: release the GPIO, now driven inactive. */
++		    ret = 1;
+ 		    break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+-- 
+2.43.0
+
