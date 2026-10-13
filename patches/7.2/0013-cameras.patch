@@ -1137,3 +1137,101 @@ index 16fac765456e..b46b6693f856 100644
 -- 
 2.43.0
 
+From 8efd4bc085d1c5e6d422820e39f111657c35c1d7 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:18 +0200
+Subject: [PATCH] media: i2c: ov5693: Gate the MIPI clock lane for
+ non-continuous clock
+
+The ov5693 never programs MIPI_CTRL00 (0x4800), leaving it at its 0x00
+power-on default, which lets the MIPI clock run freely. The IPU3 CSI-2
+receiver tolerates this, but the IPU6 receiver (e.g. on Microsoft
+Surface Pro 7+, Pro 8, Pro 9 and Surface Go 4) fails to lock onto the
+link, so the sensor streams but capture times out with "stream stop
+time out". On most affected machines no frames arrive at all; on some
+the failure is intermittent.
+
+Gate the clock lane while idle at stream on when the endpoint requests a
+non-continuous clock.
+
+Only the gate bit is touched, so platforms that do not request it are
+unaffected. No counterpart is needed at stream off, as the link is down
+by then and the register returns to its default when the sensor is
+powered off.
+
+The property is supplied by the ipu-bridge in a subsequent patch.
+
+Link: https://github.com/linux-surface/linux-surface/pull/2171
+Co-developed-by: Arsalan Naeem <naeemarsalan@gmail.com>
+Signed-off-by: Arsalan Naeem <naeemarsalan@gmail.com>
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 0e12587945f66d5b8c72be145b95fc5f109b3a32)
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 02236f3db19d..cedc6ea032c5 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -35,6 +35,11 @@
+ #define OV5693_STOP_STREAMING			0x00
+ #define OV5693_SW_RESET				0x01
+ 
++/* MIPI transmitter control */
++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
++/* Gate the clock lane when there is no packet to transmit */
++#define OV5693_MIPI_CTRL00_CLOCK_LANE_GATE	BIT(5)
++
+ #define OV5693_REG_CHIP_ID			CCI_REG16(0x300a)
+ /* Yes, this is right. The datasheet for the OV5693 gives its ID as 0x5690 */
+ #define OV5693_CHIP_ID				0x5690
+@@ -144,6 +149,9 @@ struct ov5693_device {
+ 	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
+ 	struct clk *xvclk;
+ 
++	/* Gate the MIPI clock lane when idle (CSI-2 non-continuous clock) */
++	bool clock_ncont;
++
+ 	struct ov5693_mode {
+ 		struct v4l2_rect crop;
+ 		struct v4l2_mbus_framefmt format;
+@@ -611,6 +619,19 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
+ {
+ 	int ret = 0;
+ 
++	/*
++	 * Gate the MIPI clock lane while idle if the CSI-2 link is configured
++	 * for a non-continuous clock. Only that bit is touched, and only in
++	 * that case, so the register keeps whatever the platform left in it
++	 * and the clock stays free-running as before everywhere else. It
++	 * needs no counterpart at stream off: the link is down by then, and
++	 * the register returns to its default when the sensor is powered off.
++	 */
++	if (enable && ov5693->clock_ncont)
++		cci_update_bits(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
++				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE,
++				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE, &ret);
++
+ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
+ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
+ 		  &ret);
+@@ -1259,6 +1280,9 @@ static int ov5693_check_hwcfg(struct ov5693_device *ov5693)
+ 		goto out_free_bus_cfg;
+ 	}
+ 
++	ov5693->clock_ncont = bus_cfg.bus.mipi_csi2.flags &
++			      V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK;
++
+ out_free_bus_cfg:
+ 	v4l2_fwnode_endpoint_free(&bus_cfg);
+ 
+-- 
+2.43.0
+
