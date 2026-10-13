@@ -1118,3 +1118,37 @@ index b2a54733df20..6d65adb0a3a4 100644
 -- 
 2.43.0
 
+From e0ae8e424e0e465ef0b6d651a1ae06d60b76f97e Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:40:11 -0600
+Subject: [PATCH] platform/x86: int3472: discrete: Fix SP9 GPIO flags format
+ specifier
+
+The Surface Pro 9 debug output for GPIO type 0x08 prints gpio_flags, an
+unsigned long, with %x, which -Wformat warns about. Use %lx.
+
+This fixes the patch "Add camera support for Surface Pro 9" in the
+cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index 6d65adb0a3a4..dc2042bb8c46 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -389,7 +389,7 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 			break;
+ 		case 0x08:  /* Surface Pro 9 - treat as power*/
+ 		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
+-		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
++		    dev_info(int3472->dev, "  con_id=%s, flags=0x%lx\n", con_id, gpio_flags);
+ 		    ret = skl_int3472_register_regulator(int3472, gpio,
+ 			 GPIO_REGULATOR_ENABLE_TIME,
+ 			 con_id, NULL);
+-- 
+2.43.0
+
