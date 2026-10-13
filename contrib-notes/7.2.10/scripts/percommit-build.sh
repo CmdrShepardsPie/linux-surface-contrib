@@ -1,47 +1,69 @@
 #!/usr/bin/env bash
-# Bisectability + warning check: for each commit in BASE..TIP, check it out and
-# compile (W=1) every C file it touches, plus whole directories for files under
-# newly added driver dirs. Records results per commit.
+# Bisectability and warning check: for each commit in BASE..TIP, check it out and compile
+# (W=1) every C file it touches, or the whole directory for files in a directory the series
+# adds. Records one line per commit in OUTDIR/summary.tsv and the build log in OUTDIR/NN.log.
 # Usage: percommit-build.sh <kernel-tree> <base> <tip> <outdir> <merged-config>
+# Headers aren't built on their own; the full build (full-build.sh) covers them.
 set -uo pipefail
-TREE=$1 BASE=$2 TIP=$3 OUT=$4 CONFIG=$5
-mkdir -p "$OUT"
-cd "$TREE" || exit 1
-summary="$OUT/summary.tsv"
-: > "$summary"
+shopt -s inherit_errexit
+usage="usage: percommit-build.sh KERNEL_TREE BASE TIP OUTDIR CONFIG"
+TREE=${1:?${usage}}
+BASE=${2:?${usage}}
+TIP=${3:?${usage}}
+OUT=${4:?${usage}}
+CONFIG=${5:?${usage}}
+mkdir -p "${OUT}"
+OUT=$(cd "${OUT}" && pwd)
+config_dir=$(dirname "${CONFIG}")
+config_dir=$(cd "${config_dir}" && pwd) || exit 1
+CONFIG=${config_dir}/${CONFIG##*/}
+cd "${TREE}" || exit 1
+summary=${OUT}/summary.tsv
+: >"${summary}"
+revs=$(git rev-list --reverse "${BASE}..${TIP}") || exit 1
 n=0
-for c in $(git rev-list --reverse "$BASE..$TIP"); do
-  n=$((n+1))
-  git checkout -q "$c" || { echo -e "$n\t$c\tCHECKOUT_FAIL" >> "$summary"; continue; }
+for c in ${revs}; do
+  n=$((n + 1))
+  if ! git checkout -q "${c}"; then
+    printf '%s\t%s\tCHECKOUT_FAIL\n' "${n}" "${c}" >>"${summary}"
+    continue
+  fi
   # Restore the intended config every time: syncconfig drops symbols that don't exist yet
   # at earlier commits, which would silently disable later drivers.
-  cp "$CONFIG" .config && make -s olddefconfig > /dev/null 2>&1 < /dev/null
-  subj=$(git log -1 --format=%s "$c")
+  cp "${CONFIG}" .config && make -s olddefconfig >/dev/null 2>&1 </dev/null
+  subj=$(git log -1 --format=%s "${c}")
+  changed=$(git diff-tree --no-commit-id --name-only --diff-filter=AM -r "${c}")
   targets=()
   while IFS= read -r f; do
-    case "$f" in
+    case ${f} in
       *.c)
-        # Build the directory for files in brand-new driver dirs, else the object.
-        d=$(dirname "$f")
-        if ! git cat-file -e "$BASE:$d" 2>/dev/null; then targets+=("$d/"); else targets+=("${f%.c}.o"); fi ;;
-      *.h)
-        # Headers: build the C files in the same directory that this commit also touches,
-        # or the directory's main users (approximation, recorded as such).
+        # The whole directory for files in a directory the series adds, else the object.
+        d=$(dirname "${f}")
+        if git cat-file -e "${BASE}:${d}" 2>/dev/null; then
+          targets+=("${f%.c}.o")
+        else
+          targets+=("${d}/")
+        fi
         ;;
+      *) ;;
     esac
-  done < <(git diff-tree --no-commit-id --name-only --diff-filter=AM -r "$c")
-  # de-duplicate
-  if [ ${#targets[@]} -gt 0 ]; then mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort -u); fi
-  log="$OUT/$(printf '%02d' $n).log"
-  if [ ${#targets[@]} -eq 0 ]; then
-    echo -e "$n\t${c:0:12}\tNO_C_FILES\t0\t$subj" >> "$summary"; continue
+  done <<<"${changed}"
+  if ((${#targets[@]} > 0)); then
+    sorted=$(printf '%s\n' "${targets[@]}" | sort -u)
+    mapfile -t targets <<<"${sorted}"
   fi
-  if make -j2 W=1 "${targets[@]}" > "$log" 2>&1 < /dev/null; then status=OK; else status=FAIL; fi
-  ccs=$(grep -cE '^\s+CC' "$log")
-  [ "$status" = OK ] && [ "$ccs" -eq 0 ] && status=NOTHING_BUILT
-  grep -qE 'Restart config|\(NEW\)' "$log" && status="$status+CONFIG_PROMPT"
-  warns=$(grep -cE 'warning:' "$log")
-  echo -e "$n\t${c:0:12}\t$status\t$warns\tcc=$ccs\t$subj\t${targets[*]}" >> "$summary"
+  log=$(printf '%s/%02d.log' "${OUT}" "${n}")
+  if ((${#targets[@]} == 0)); then
+    printf '%s\t%s\tNO_C_FILES\t0\t%s\n' "${n}" "${c:0:12}" "${subj}" >>"${summary}"
+    continue
+  fi
+  if make -j2 W=1 "${targets[@]}" >"${log}" 2>&1 </dev/null; then status=OK; else status=FAIL; fi
+  ccs=$(grep -cE '^\s+CC' "${log}") || ccs=0
+  if [[ ${status} == OK && ${ccs} -eq 0 ]]; then status=NOTHING_BUILT; fi
+  if grep -qE 'Restart config|\(NEW\)' "${log}"; then status="${status}+CONFIG_PROMPT"; fi
+  warns=$(grep -cE 'warning:' "${log}") || warns=0
+  printf '%s\t%s\t%s\t%s\tcc=%s\t%s\t%s\n' "${n}" "${c:0:12}" "${status}" "${warns}" "${ccs}" \
+    "${subj}" "${targets[*]}" >>"${summary}"
 done
-git checkout -q "$TIP"
-echo "done: $n commits"
+git checkout -q "${TIP}"
+echo "done: ${n} commits"

@@ -3,11 +3,14 @@
 # mirroring .github/scripts/autoupdate/build-kernel.sh (make all).
 # Usage: KTREE=<kernel tree with the series applied, .config = merged-7.2.10.config>
 #        WORK=<output dir> full-build.sh
+# Writes WORK/full-build.log and WORK/full-build.status ("rc=N seconds=S").
 set -uo pipefail
+shopt -s inherit_errexit
 : "${KTREE:?set KTREE to the kernel tree}" "${WORK:?set WORK to an output directory}"
 cd "${KTREE}" || exit 1
 export KBUILD_BUILD_HOST=sandbox KBUILD_BUILD_USER=builder
 start=$(date +%s)
 make -j2 all >"${WORK}/full-build.log" 2>&1 </dev/null
 rc=$?
-echo "rc=${rc} seconds=$(($(date +%s) - start))" >"${WORK}/full-build.status"
+end=$(date +%s)
+echo "rc=${rc} seconds=$((end - start))" >"${WORK}/full-build.status"

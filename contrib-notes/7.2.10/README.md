@@ -49,8 +49,9 @@ Each fix commit takes only its patch set's file from its step; the other files k
 rebase commit's version, which differs from a fresh generation only in the informational
 `From <commit-id>` lines.
 
-`../verify-series.sh` and `scripts/genpatchsets.sh` pass `shellcheck --enable=all`. The other scripts
-are kept as they were run during the review and haven't been brought to that standard.
+All the scripts here, and `../verify-series.sh`, pass `shellcheck -o all`. `percommit-build.sh`,
+`full-build.sh` and `set-identity.sh` were brought to that standard after the review runs;
+their logic is unchanged.
 
 ## Status
 
