@@ -1,4 +1,4 @@
-From 996e4ad097fbad78c9d7b23a6ab7a312686479b6 Mon Sep 17 00:00:00 2001
+From 8fec4ef4681209acf92a3da29fa02ffbcc6b772a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
 Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
@@ -39,7 +39,7 @@ index b5b577f0b931..303e2c526986 100644
 -- 
 2.43.0
 
-From d4dd23659fb55bd2d45320f6d0f5655832cc7aaf Mon Sep 17 00:00:00 2001
+From 4a0a7e9e00913c3eec8be92c83b8b75cc5064867 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -275,7 +275,7 @@ index 29d7e33ee812..1b8285c13b9a 100644
 -- 
 2.43.0
 
-From 3bb883cb25cd108f8e61fadfa51c18e9a28aa972 Mon Sep 17 00:00:00 2001
+From c0cf65a8617090bd7578659ab2777816896d842e Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -571,6 +571,88 @@ index 1b8285c13b9a..1c1dcf11e04f 100644
  
  	unregister_pm_notifier(&td->pm_notifier);
  	timer_shutdown_sync(&td->release_timer);
+-- 
+2.43.0
+
+From 49d0f26cb46d4b2d6785c638949cc15bc25a25e4 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:12:52 -0600
+Subject: [PATCH] hid/multitouch: Register Type Cover PM notifier after
+ starting the device
+
+mt_probe() registers td->pm_notifier for the Type Cover keyboard
+backlight before parsing the report descriptor. This has two problems:
+
+- The Apple Touch Bar check returns -ENODEV without unregistering the
+  notifier. td is devm-allocated, so it is freed while the notifier is
+  still on the PM notifier chain, and the next suspend calls into freed
+  memory.
+
+- A suspend during probe can run the notifier before hid_hw_start(), so
+  update_keyboard_backlight() would send a request to a device that has
+  not been started.
+
+Register the notifier only after hid_hw_start() has succeeded. Every
+exit path after that point returns success, so mt_remove() always
+unregisters it, and the error-path unregisters are no longer needed.
+The notifier itself still checks the backlight quirk at run time, so
+behaviour on working devices is unchanged.
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 1c1dcf11e04f..3174f77f3932 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2294,9 +2294,6 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
+ 	hid_set_drvdata(hdev, td);
+ 
+-	td->pm_notifier.notifier_call = mt_pm_notifier;
+-	register_pm_notifier(&td->pm_notifier);
+-
+ 	INIT_LIST_HEAD(&td->applications);
+ 	INIT_LIST_HEAD(&td->reports);
+ 
+@@ -2335,10 +2332,8 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	timer_setup(&td->release_timer, mt_expired_timeout, 0);
+ 
+ 	ret = hid_parse(hdev);
+-	if (ret != 0) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret != 0)
+ 		return ret;
+-	}
+ 
+ 	if (mtclass->name == MT_CLS_APPLE_TOUCHBAR &&
+ 	    !hid_find_field(hdev, HID_INPUT_REPORT,
+@@ -2352,10 +2347,16 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 		hdev->quirks |= HID_QUIRK_NOGET;
+ 
+ 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+-	if (ret) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret)
+ 		return ret;
+-	}
++
++	/*
++	 * Register only once the device is started: the notifier sends
++	 * requests to the device, and every exit path from here on returns
++	 * success, so mt_remove() is guaranteed to unregister it.
++	 */
++	td->pm_notifier.notifier_call = mt_pm_notifier;
++	register_pm_notifier(&td->pm_notifier);
+ 
+ 	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
+ 	if (ret)
 -- 
 2.43.0
 
