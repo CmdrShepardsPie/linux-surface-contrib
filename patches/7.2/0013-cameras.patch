@@ -1152,3 +1152,41 @@ index 6d65adb0a3a4..dc2042bb8c46 100644
 -- 
 2.43.0
 
+From 55b928bc2f0b5737be28d92fa9fc8d8d5d5ff0fa Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:15:22 -0600
+Subject: [PATCH] media: i2c: ov13858: Don't log uninitialised chip ID on read
+ failure
+
+The Surface Pro 9 debug output in ov13858_identify_module() prints the
+chip ID read result before checking whether the read succeeded.
+ov13858_read_reg() does not write the value on its error paths, so a
+failed read logs uninitialised stack contents as the chip ID.
+
+Initialise val to zero so the message shows 0 when the read fails.
+
+This fixes the patch "Add camera support for Surface Pro 9" in the
+cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 015493a16430..7081349aee8c 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -1619,7 +1619,7 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ static int ov13858_identify_module(struct ov13858 *ov13858)
+ {
+ 	int ret;
+-	u32 val;
++	u32 val = 0;
+ 
+ 	dev_info(ov13858->dev, "Attempting to read chip ID from register 0x300a\n");
+ 	ret = ov13858_read_reg(ov13858, OV13858_REG_CHIP_ID,
+-- 
+2.43.0
+
