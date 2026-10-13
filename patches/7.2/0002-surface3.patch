@@ -232,3 +232,41 @@ index 6074b7730e86..6aa3e1d6f160 100644
 -- 
 2.43.0
 
+From 5977cb8dce3a0831acd9d2f99838078f9a98dad9 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:16:43 -0600
+Subject: [PATCH] surface3-spi: Make use_dma static
+
+The use_dma module parameter added by the DMA workaround is only used in
+this file, but is declared with external linkage, which sparse reports:
+
+  symbol 'use_dma' was not declared. Should it be static?
+
+Make it static and drop the redundant zero initialiser. No functional
+change.
+
+This fixes the patch "surface3-spi: workaround: disable DMA mode to
+avoid crash by default" in the surface3 patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface3
+---
+ drivers/input/touchscreen/surface3_spi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/surface3_spi.c b/drivers/input/touchscreen/surface3_spi.c
+index 6aa3e1d6f160..d50fcfded44f 100644
+--- a/drivers/input/touchscreen/surface3_spi.c
++++ b/drivers/input/touchscreen/surface3_spi.c
+@@ -25,7 +25,7 @@
+ #define SURFACE3_REPORT_TOUCH	0xd2
+ #define SURFACE3_REPORT_PEN	0x16
+ 
+-bool use_dma = false;
++static bool use_dma;
+ module_param(use_dma, bool, 0644);
+ MODULE_PARM_DESC(use_dma,
+ 				"Disable DMA mode if you encounter touch input crash. "
+-- 
+2.43.0
+
