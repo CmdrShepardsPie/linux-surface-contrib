@@ -1344,3 +1344,157 @@ index b46b6693f856..e8aeb23dc5a2 100644
 -- 
 2.43.0
 
+From 54e60225ccb6da503e46bc0694f48070bac3bfa5 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:20 +0200
+Subject: [PATCH] media: ipu-bridge: Match sensor configs per IPU and add
+ config flags
+
+Some sensors need different treatment depending on which IPU they are
+connected to, so the ACPI HID alone is not enough.
+
+Match on an optional list of IPU PCI product IDs. Entries for one HID
+must be adjacent, IPU-specific ones first, so the generic entry is
+skipped once a specific one has matched.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit b883954d842f57f6f349bbbdf3d4347db3a416dc)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 35 ++++++++++++++++++++++++++++
+ include/media/ipu-bridge.h           | 26 +++++++++++++++++----
+ 2 files changed, 56 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 29a894497631..7eddbb3d01cc 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -8,6 +8,7 @@
+ #include <linux/dmi.h>
+ #include <linux/i2c.h>
+ #include <linux/mei_cl_bus.h>
++#include <linux/pci.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/property.h>
+@@ -809,8 +810,28 @@ static int ipu_bridge_connect_sensor(const struct ipu_sensor_config *cfg,
+ 	return ret;
+ }
+ 
++/*
++ * Whether a sensor config applies to the IPU this bridge sits on. A config
++ * listing PCI product IDs only applies to those IPUs.
++ */
++static bool ipu_bridge_config_matches(const struct ipu_sensor_config *cfg,
++				      struct ipu_bridge *bridge)
++{
++	const u16 *id;
++
++	if (!cfg->pci_ids)
++		return true;
++
++	for (id = cfg->pci_ids; *id; id++)
++		if (*id == bridge->pci_id)
++			return true;
++
++	return false;
++}
++
+ static int ipu_bridge_connect_sensors(struct ipu_bridge *bridge)
+ {
++	const char *done_hid = NULL;
+ 	unsigned int i;
+ 	int ret;
+ 
+@@ -818,9 +839,22 @@ static int ipu_bridge_connect_sensors(struct ipu_bridge *bridge)
+ 		const struct ipu_sensor_config *cfg =
+ 			&ipu_supported_sensors[i];
+ 
++		/*
++		 * Entries for one HID are adjacent, IPU-specific ones first,
++		 * so the generic entry is skipped once a specific one has
++		 * matched and the sensor is not connected twice.
++		 */
++		if (done_hid && !strcmp(cfg->hid, done_hid))
++			continue;
++
++		if (!ipu_bridge_config_matches(cfg, bridge))
++			continue;
++
+ 		ret = ipu_bridge_connect_sensor(cfg, bridge);
+ 		if (ret)
+ 			goto err_unregister_sensors;
++
++		done_hid = cfg->hid;
+ 	}
+ 
+ 	return 0;
+@@ -916,6 +950,7 @@ int ipu_bridge_init(struct device *dev,
+ 		sizeof(bridge->ipu_node_name));
+ 	bridge->ipu_hid_node.name = bridge->ipu_node_name;
+ 	bridge->dev = dev;
++	bridge->pci_id = dev_is_pci(dev) ? to_pci_dev(dev)->device : 0;
+ 	bridge->parse_sensor_fwnode = parse_sensor_fwnode;
+ 
+ 	ret = software_node_register(&bridge->ipu_hid_node);
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index e8aeb23dc5a2..c562db794ca8 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -17,13 +17,24 @@
+ #define IPU_SENSOR_ROTATION_NORMAL		0
+ #define IPU_SENSOR_ROTATION_INVERTED		1
+ 
+-#define IPU_SENSOR_CONFIG(_HID, _NR, ...)	\
+-	(const struct ipu_sensor_config) {	\
+-		.hid = _HID,			\
+-		.nr_link_freqs = _NR,		\
+-		.link_freqs = { __VA_ARGS__ }	\
++/*
++ * Sensor config specific to one or more IPUs, identified by their PCI product
++ * IDs, with flags describing what the sensor needs there. Entries for one HID
++ * must be adjacent in ipu_supported_sensors[], with the IPU-specific ones
++ * before the generic one.
++ */
++#define IPU_SENSOR_CONFIG_MATCH_FL(_HID, _IDS, _FLAGS, _NR, ...)	\
++	(const struct ipu_sensor_config) {				\
++		.hid = _HID,						\
++		.pci_ids = _IDS,					\
++		.flags = _FLAGS,					\
++		.nr_link_freqs = _NR,					\
++		.link_freqs = { __VA_ARGS__ }				\
+ 	}
+ 
++#define IPU_SENSOR_CONFIG(_HID, _NR, ...)				\
++	IPU_SENSOR_CONFIG_MATCH_FL(_HID, NULL, 0, _NR, __VA_ARGS__)
++
+ #define NODE_SENSOR(_HID, _PROPS)		\
+ 	(const struct software_node) {		\
+ 		.name = _HID,			\
+@@ -132,6 +143,9 @@ struct ipu_node_names {
+ 
+ struct ipu_sensor_config {
+ 	const char *hid;
++	/* Zero-terminated list of IPU PCI product IDs, NULL for any IPU */
++	const u16 *pci_ids;
++	const u32 flags;
+ 	const u8 nr_link_freqs;
+ 	const u64 link_freqs[MAX_NUM_LINK_FREQS];
+ };
+@@ -177,6 +191,8 @@ typedef int (*ipu_parse_sensor_fwnode_t)(struct acpi_device *adev,
+ 
+ struct ipu_bridge {
+ 	struct device *dev;
++	/* PCI product ID of the IPU, 0 if it is not a PCI device */
++	u16 pci_id;
+ 	ipu_parse_sensor_fwnode_t parse_sensor_fwnode;
+ 	char ipu_node_name[ACPI_ID_LEN];
+ 	struct software_node ipu_hid_node;
+-- 
+2.43.0
+
