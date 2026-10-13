@@ -656,3 +656,61 @@ index 59f92adcf664..cd1ec4595ad7 100644
 -- 
 2.43.0
 
+From 5eeb62d41a6c71004a3e6567a91ecccb3eaf2f09 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:38:49 -0600
+Subject: [PATCH] hid/multitouch: Only toggle Type Cover backlight on USB
+ devices
+
+The Surface Type Cover entry in the device table matches the device ID
+on any bus, but update_keyboard_backlight() unconditionally treats the
+device as USB and uses hid_to_usb_dev(). For a non-USB device with the
+same IDs, this treats whatever sits two levels up in the device
+hierarchy as a usb_device on every suspend and resume: an unrelated
+device for transports such as I2C, or a NULL pointer for uhid.
+
+Return early unless the device is on USB, as other HID drivers do with
+hid_is_usb(). hid_is_usb() is provided by usbhid, which hid-multitouch
+did not depend on before, so only call it when usbhid is reachable.
+When hid-multitouch is built in and usbhid is a module, the backlight is
+left alone instead of failing to link. When both are modules,
+hid-multitouch now depends on usbhid, like other HID drivers using
+hid_is_usb().
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index cd1ec4595ad7..025c4cc682d7 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2209,9 +2209,19 @@ static void mt_expired_timeout(struct timer_list *t)
+ 
+ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ {
+-	struct usb_device *udev = hid_to_usb_dev(hdev);
++	struct usb_device *udev;
+ 	struct hid_field *field = NULL;
+ 
++	/*
++	 * The device table matches any bus; only USB devices have a
++	 * usb_device. hid_is_usb() lives in usbhid, so it can only be used
++	 * when usbhid is reachable from here.
++	 */
++	if (!IS_REACHABLE(CONFIG_USB_HID) || !hid_is_usb(hdev))
++		return;
++
++	udev = hid_to_usb_dev(hdev);
++
+ 	/* Wake up the device in case it's already suspended */
+ 	pm_runtime_get_sync(&udev->dev);
+ 
+-- 
+2.43.0
+
