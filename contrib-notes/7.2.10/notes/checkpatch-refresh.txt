@@ -1,0 +1,208 @@
+(surface3-oemb) add DMI matches for Surface 3 with broken DM :: WARNING:COMMIT_LOG_LONG_LINE: Prefer a maximum 75 chars per line (possible unwrapped commit description?)
+ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7 overr :: WARNING:REPEATED_WORD: Possible repeated word: 'the'
+Add camera support for Surface Pro 9 :: ERROR:CODE_INDENT: code indent should use tabs where possible
+Add camera support for Surface Pro 9 :: ERROR:CODE_INDENT: code indent should use tabs where possible
+Add camera support for Surface Pro 9 :: WARNING:BRACES: braces {} are not necessary for single statement blocks
+Add camera support for Surface Pro 9 :: WARNING:LONG_LINE: line length of 115 exceeds 100 columns
+Add camera support for Surface Pro 9 :: WARNING:TABSTOP: Statements should start on a tabstop
+Add camera support for Surface Pro 9 :: WARNING:TABSTOP: Statements should start on a tabstop
+Add camera support for Surface Pro 9 :: WARNING:TABSTOP: Statements should start on a tabstop
+Add camera support for Surface Pro 9 :: WARNING:TABSTOP: Statements should start on a tabstop
+HID: Add hid-surface driver to filter BTN_0 (FN key) :: WARNING:COMMIT_LOG_USE_LINK: Unknown link reference 'Fixes:', use 'Link:' or 'Closes:' instead
+HID: Add hid-surface driver to filter BTN_0 (FN key) :: WARNING:CONFIG_DESCRIPTION: please write a help paragraph that fully describes the config symbol with at least 4 lines
+HID: Add hid-surface driver to filter BTN_0 (FN key) :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+Input: soc_button_array - support AMD variant Surface device :: WARNING:BAD_SIGN_OFF: Co-developed-by: must be immediately followed by Signed-off-by:
+Input: soc_button_array - support AMD variant Surface device :: WARNING:TYPO_SPELLING: 'existance' may be misspelled - perhaps 'existence'?
+PCI: Add Surface Laptop Studio 2 devices to shutdown ops qui :: WARNING:LONG_LINE_COMMENT: line length of 105 exceeds 100 columns
+PCI: Add Surface Laptop Studio 2 devices to shutdown ops qui :: WARNING:LONG_LINE_COMMENT: line length of 112 exceeds 100 columns
+PCI: Add Surface Laptop Studio 2 devices to shutdown ops qui :: WARNING:LONG_LINE_COMMENT: line length of 112 exceeds 100 columns
+PCI: Add quirk to prevent calling shutdown method :: WARNING:BAD_SIGN_OFF: 'Not-signed-off-by:' is the preferred signature form
+PCI: Add quirk to prevent calling shutdown method :: WARNING:LONG_LINE_COMMENT: line length of 105 exceeds 100 columns
+PCI: Add quirk to prevent calling shutdown method :: WARNING:LONG_LINE_COMMENT: line length of 112 exceeds 100 columns
+PCI: Add quirk to prevent calling shutdown method :: WARNING:LONG_LINE_COMMENT: line length of 112 exceeds 100 columns
+hid: Add support for Intel Precise Touch and Stylus :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+hid: Add support for Intel Precise Touch and Stylus :: WARNING:SPDX_LICENSE_TAG: Improper SPDX comment style for 'drivers/hid/ipts/eds1.h', please use '/*' instead
+hid: Add support for Intel Precise Touch and Stylus :: WARNING:SPDX_LICENSE_TAG: Improper SPDX comment style for 'drivers/hid/ipts/eds2.h', please use '/*' instead
+hid: Add support for Intel Precise Touch and Stylus :: WARNING:SPDX_LICENSE_TAG: Missing or malformed SPDX-License-Identifier tag in line 1
+hid: Add support for Intel Precise Touch and Stylus :: WARNING:SPDX_LICENSE_TAG: Missing or malformed SPDX-License-Identifier tag in line 1
+hid: Add support for Intel Touch Host Controller :: ERROR:INITIALISED_STATIC: do not initialise statics to false
+hid: Add support for Intel Touch Host Controller :: ERROR:INITIALISED_STATIC: do not initialise statics to false
+hid: Add support for Intel Touch Host Controller :: ERROR:INITIALISED_STATIC: do not initialise statics to false
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BLOCK_COMMENT_STYLE: Block comments use * on subsequent lines
+hid: Add support for Intel Touch Host Controller :: WARNING:BRACES: braces {} are not necessary for single statement blocks
+hid: Add support for Intel Touch Host Controller :: WARNING:BRACES: braces {} are not necessary for single statement blocks
+hid: Add support for Intel Touch Host Controller :: WARNING:BRACES: braces {} are not necessary for single statement blocks
+hid: Add support for Intel Touch Host Controller :: WARNING:CONSIDER_KSTRTO: simple_strtoul is obsolete, use kstrtoul instead
+hid: Add support for Intel Touch Host Controller :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LINE_SPACING: Missing a blank line after declarations
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 101 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 101 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 102 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 102 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 104 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 117 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 119 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 126 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 129 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 129 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 132 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 159 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE: line length of 159 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 101 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 103 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 106 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 108 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 110 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 124 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:LONG_LINE_COMMENT: line length of 149 exceeds 100 columns
+hid: Add support for Intel Touch Host Controller :: WARNING:MACRO_WITH_FLOW_CONTROL: Macros with flow control statements should be avoided
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+hid: Add support for Intel Touch Host Controller :: WARNING:TABSTOP: Statements should start on a tabstop
+iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs :: ERROR:GERRIT_CHANGE_ID: Remove Gerrit Change-Id's before submitting upstream
+iommu: intel: Disable source id verification for ITHC :: ERROR:SPACING: space required before the open parenthesis '('
+iommu: intel: Disable source id verification for ITHC :: WARNING:COMMIT_MESSAGE: Missing commit description - Add an appropriate one
+leds: tps68470: Add LED control for tps68470 :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+leds: tps68470: Add LED control for tps68470 :: WARNING:MODULE_LICENSE: Prefer "GPL" over "GPL v2" - see commit bf7fbeeae6db ("module: Cure the MODULE_LICENSE "GPL" vs. "GPL v2" bogosity")
+leds: tps68470: Add LED control for tps68470 :: WARNING:STATIC_CONST_CHAR_ARRAY: static const char * array should probably be static const char * const
+media: i2c: dw9719: fix probe error on surface go 2 :: WARNING:COMMIT_LOG_LONG_LINE: Prefer a maximum 75 chars per line (possible unwrapped commit description?)
+mei: me: Add Icelake device ID for iTouch :: WARNING:COMMIT_MESSAGE: Missing commit description - Add an appropriate one
+platform/surface: Add driver for Surface Book 1 dGPU switch :: WARNING:CONFIG_DESCRIPTION: please write a help paragraph that fully describes the config symbol with at least 4 lines
+platform/surface: Add driver for Surface Book 1 dGPU switch :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+platform/surface: surfacepro3_button: don't load on amd vari :: WARNING:BAD_SIGN_OFF: Co-developed-by: must be immediately followed by Signed-off-by:
+rtc: Add basic support for RTC via Surface System Aggregator :: WARNING:COMMIT_MESSAGE: Missing commit description - Add an appropriate one
+rtc: Add basic support for RTC via Surface System Aggregator :: WARNING:CONFIG_DESCRIPTION: please write a help paragraph that fully describes the config symbol with at least 4 lines
+rtc: Add basic support for RTC via Surface System Aggregator :: WARNING:FILE_PATH_CHANGES: added, moved or deleted file(s), does MAINTAINERS need updating?
+surface3-spi: workaround: disable DMA mode to avoid crash by :: ERROR:GLOBAL_INITIALISERS: do not initialise globals to false
+surface3-spi: workaround: disable DMA mode to avoid crash by :: WARNING:COMMIT_LOG_LONG_LINE: Prefer a maximum 75 chars per line (possible unwrapped commit description?)
+surface3-spi: workaround: disable DMA mode to avoid crash by :: WARNING:SPLIT_STRING: quoted string split across lines

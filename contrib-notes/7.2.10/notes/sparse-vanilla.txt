@@ -1,0 +1,4 @@
+arch/x86/kernel/acpi/boot.c: warning: incorrect type in argument 1 (different address spaces)
+arch/x86/kernel/acpi/boot.c: warning: incorrect type in return expression (different address spaces)
+drivers/pci/pci-driver.c: warning: restricted pci_power_t degrades to integer
+drivers/pci/quirks.c: warning: restricted pci_power_t degrades to integer
