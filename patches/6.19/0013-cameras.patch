@@ -1599,3 +1599,72 @@ index c562db794ca8..760f0767ce58 100644
 -- 
 2.43.0
 
+From 301e1f957d48f4463f0628758d53e060822c16a1 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Sun, 13 Sep 2026 20:38:40 +0100
+Subject: [PATCH] media: ipu-bridge: Keep the clock-noncontinuous property name
+ out of rodata
+
+The software nodes ipu-bridge registers on a successful init are never
+unregistered. There is no module_exit and no remove hook, and every
+software_node_unregister_node_group() call sits on an error unwind label
+inside ipu_bridge_init(), so on success the nodes stay registered and
+readable after the module is unloaded, which a later rebind relies on.
+
+Nothing reachable from a registered node may therefore point into the
+module image. PROPERTY_ENTRY_BOOL() stores a pointer to its name, so the
+"clock-noncontinuous" string literal leaves the surviving node carrying a
+dangling property name once ipu-bridge is gone.
+
+Add the name to struct ipu_property_names, which is copied by value into
+each struct ipu_sensor, and use that copy, as every other endpoint
+property name already does.
+
+Fixes: 8e3def7bf410 ("media: ipu-bridge: Request non-continuous clock for ov5693 on IPU6")
+Reported-by: D. Manresa <dmanresa@gmail.com>
+Closes: https://lore.kernel.org/linux-media/20260905211307.542810-1-dmanresa@gmail.com/
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit a20c843c9bc40ab8703a2b17fcbc69532baca692)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 3 ++-
+ include/media/ipu-bridge.h           | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index eff18433030f..0fcc6d12497d 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -163,6 +163,7 @@ static const struct ipu_property_names prop_names = {
+ 	.data_lanes = "data-lanes",
+ 	.remote_endpoint = "remote-endpoint",
+ 	.link_frequencies = "link-frequencies",
++	.clock_noncontinuous = "clock-noncontinuous",
+ };
+ 
+ static const char * const ipu_vcm_types[] = {
+@@ -473,7 +474,7 @@ static void ipu_bridge_create_fwnode_properties(
+ 
+ 	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
+ 		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
+-			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
++			PROPERTY_ENTRY_BOOL(names->clock_noncontinuous);
+ 
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index 760f0767ce58..3ef94c2b7678 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -135,6 +135,7 @@ struct ipu_property_names {
+ 	char data_lanes[11];
+ 	char remote_endpoint[16];
+ 	char link_frequencies[17];
++	char clock_noncontinuous[20];
+ };
+ 
+ struct ipu_node_names {
+-- 
+2.43.0
+
