@@ -42,19 +42,40 @@ upstream change:
 
 ## Why the dirtyfrag backports are left out
 
-v6.18.56 already carries stable's own fixes for Dirty Frag:
-- applied to v6.18.56, "xfrm: esp: avoid in-place decrypt on shared skb frags" and "rxrpc:
-  Fix use of wrong skb when comparing queued RESP challenge serial" are empty commits (the
-  changes are already there);
-- rxrpc in v6.18.56 decrypts DATA packets into a per-call linear buffer
-  (`call->rx_dec_buffer`, see `rxkad_verify_packet_1()`), not in place in the skb's pages,
-  so the skb unsharing the other backports add before decryption isn't needed there;
-- RESPONSE packets are processed only while the connection is challenging
-  (`rxrpc_process_event()` in `conn_event.c`), which is what "only handle RESPONSE during
-  service challenge" adds.
+All eight are already in v6.18.56, as stable's own backports of the same upstream commits:
 
-Re-adding the six non-empty backports would put back code that stable's design no longer
-needs. This is the one judgement call in the rebase; reviewers should check it.
+| #2117 patch | In v6.18.56 as |
+|---|---|
+| 0017 xfrm: esp: avoid in-place decrypt on shared skb frags | `71a1d9d985` |
+| 0018 rxrpc: Fix potential UAF after skb_unshare() failure | `996b0487b3` |
+| 0019 rxrpc: Fix rxrpc_input_call_event() to only unshare DATA packets | `761c37b761` |
+| 0020 rxrpc: Fix use of wrong skb when comparing queued RESP challenge serial | `9132b1a7bf` |
+| 0021 rxrpc: only handle RESPONSE during service challenge | `d0035e634d` |
+| 0022 rxrpc: Fix conn-level packet handling to unshare RESPONSE packets | `ca71ac2de3` |
+| 0023 rxrpc: Fix re-decryption of RESPONSE packets | `76cb9a2d25` |
+| 0024 rxrpc: Also unshare DATA/RESPONSE packets when paged frags are present | `3eae0f4f9f` |
+
+Later stable commits then reworked the same code: `46cb765e2e` (rxrpc copies DATA into a
+buffer in recvmsg before decrypting, `call->rx_dec_buffer`), `8bf7dbb741` (RESPONSE
+verification extracts the skb to a linear buffer), and `c093468aea` and `6cab554f2c` (ESP).
+That's why only two of the eight come out as empty commits when re-applied; the other six
+would apply a second time on top of the reworked code. (Each commit ID was checked as an
+ancestor of v6.18.56 with that subject. An earlier version of these notes said stable had
+fixed Dirty Frag "its own way"; it carries these exact fixes. The `6.18.56-rebase` commit
+message still says so and gets corrected when the branch is offered upstream.)
+
+The run that produced the branch left the six with `--drop`:
+
+```bash
+contrib-notes/update-series.sh --out /tmp/upd618 \
+  --drop "rxrpc: Fix potential UAF after skb_unshare() failure" \
+  --drop "rxrpc: Fix rxrpc_input_call_event() to only unshare DATA packets" \
+  --drop "rxrpc: only handle RESPONSE during service challenge" \
+  --drop "rxrpc: Fix conn-level packet handling to unshare RESPONSE packets" \
+  --drop "rxrpc: Fix re-decryption of RESPONSE packets" \
+  --drop "rxrpc: Also unshare DATA/RESPONSE packets when paged frags are present" \
+  KS <master's patches/6.18> v6.18.18 v6.18.56
+```
 
 ## Checks
 
