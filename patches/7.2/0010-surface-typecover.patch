@@ -574,3 +574,85 @@ index 4d0ab2d7b0e2..59f92adcf664 100644
 -- 
 2.55.0
 
+From 014ce47b28653bba34f5896a5d14550a53209b15 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:12:52 -0600
+Subject: [PATCH] hid/multitouch: Register Type Cover PM notifier after
+ starting the device
+
+mt_probe() registers td->pm_notifier for the Type Cover keyboard
+backlight before parsing the report descriptor. This has two problems:
+
+- The Apple Touch Bar check returns -ENODEV without unregistering the
+  notifier. td is devm-allocated, so it is freed while the notifier is
+  still on the PM notifier chain, and the next suspend calls into freed
+  memory.
+
+- A suspend during probe can run the notifier before hid_hw_start(), so
+  update_keyboard_backlight() would send a request to a device that has
+  not been started.
+
+Register the notifier only after hid_hw_start() has succeeded. Every
+exit path after that point returns success, so mt_remove() always
+unregisters it, and the error-path unregisters are no longer needed.
+The notifier itself still checks the backlight quirk at run time, so
+behaviour on working devices is unchanged.
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 59f92adcf664..cd1ec4595ad7 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2275,9 +2275,6 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
+ 	hid_set_drvdata(hdev, td);
+ 
+-	td->pm_notifier.notifier_call = mt_pm_notifier;
+-	register_pm_notifier(&td->pm_notifier);
+-
+ 	INIT_LIST_HEAD(&td->applications);
+ 	INIT_LIST_HEAD(&td->reports);
+ 
+@@ -2316,10 +2313,8 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	timer_setup(&td->release_timer, mt_expired_timeout, 0);
+ 
+ 	ret = hid_parse(hdev);
+-	if (ret != 0) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret != 0)
+ 		return ret;
+-	}
+ 
+ 	if (mtclass->name == MT_CLS_APPLE_TOUCHBAR &&
+ 	    !hid_find_field(hdev, HID_INPUT_REPORT,
+@@ -2333,10 +2328,16 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 		hdev->quirks |= HID_QUIRK_NOGET;
+ 
+ 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+-	if (ret) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret)
+ 		return ret;
+-	}
++
++	/*
++	 * Register only once the device is started: the notifier sends
++	 * requests to the device, and every exit path from here on returns
++	 * success, so mt_remove() is guaranteed to unregister it.
++	 */
++	td->pm_notifier.notifier_call = mt_pm_notifier;
++	register_pm_notifier(&td->pm_notifier);
+ 
+ 	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
+ 	if (ret)
+-- 
+2.43.0
+
