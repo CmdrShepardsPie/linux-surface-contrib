@@ -1061,3 +1061,77 @@ index f5456330b..3418ff475 100644
 -- 
 2.53.0
 
+From 06793247602d221f7559a59912ee4d61fc59fd65 Mon Sep 17 00:00:00 2001
+From: Sakari Ailus <sakari.ailus@linux.intel.com>
+Date: Mon, 7 Sep 2026 17:30:21 +0300
+Subject: [PATCH] media: ipu-bridge: Add ipu_bridge_get_ipu6()
+
+Add ipu_bridge_get_ipu6() for obtaining the IPU 6 (or soon later) PCI
+device. This isn't technically a job of the IPU bridge, but the
+functionality is required in conjunction with the firmware definitions
+that necessitate the use of the IPU bridge on many systems.
+
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Reviewed-by: Antti Laakso <antti.laakso@linux.intel.com>
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+(cherry picked from commit eda381fd8c0c6f77cc0b3b8d777129eb884a08e0)
+[ backport: taken as a prerequisite of 8e3def7bf410, which uses the IPU6 PCI IDs
+  from <media/ipu6-pci-table.h> that this commit includes ]
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 13 +++++++++++++
+ include/media/ipu-bridge.h           |  2 ++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 3418ff475198..0f76c522c140 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -15,6 +15,7 @@
+ #include <linux/workqueue.h>
+ 
+ #include <media/ipu-bridge.h>
++#include <media/ipu6-pci-table.h>
+ #include <media/v4l2-fwnode.h>
+ 
+ #define ADEV_DEV(adev) ACPI_PTR(&((adev)->dev))
+@@ -850,6 +851,18 @@ static int ipu_bridge_check_fwnode_graph(struct fwnode_handle *fwnode)
+ 	return ipu_bridge_check_fwnode_graph(fwnode->secondary);
+ }
+ 
++struct pci_dev *ipu_bridge_get_ipu6(void)
++{
++	struct pci_dev *ipu = NULL;
++
++	for (unsigned int i = 0; !ipu && ipu6_pci_tbl[i].vendor; i++)
++		ipu = pci_get_device(ipu6_pci_tbl[i].vendor,
++				     ipu6_pci_tbl[i].device, NULL);
++
++	return ipu;
++}
++EXPORT_SYMBOL_NS_GPL(ipu_bridge_get_ipu6, "INTEL_IPU_BRIDGE");
++
+ static DEFINE_MUTEX(ipu_bridge_mutex);
+ 
+ int ipu_bridge_init(struct device *dev,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index 16fac765456e..b46b6693f856 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -169,11 +169,13 @@ struct ipu_bridge {
+ };
+ 
+ #if IS_ENABLED(CONFIG_IPU_BRIDGE)
++struct pci_dev *ipu_bridge_get_ipu6(void);
+ int ipu_bridge_init(struct device *dev,
+ 		    ipu_parse_sensor_fwnode_t parse_sensor_fwnode);
+ int ipu_bridge_parse_ssdb(struct acpi_device *adev, struct ipu_sensor *sensor);
+ int ipu_bridge_instantiate_vcm(struct device *sensor);
+ #else
++static inline struct pci_dev *ipu_bridge_get_ipu6(void) { return NULL; }
+ /* Use a define to avoid the @parse_sensor_fwnode argument getting evaluated */
+ #define ipu_bridge_init(dev, parse_sensor_fwnode)	(0)
+ static inline int ipu_bridge_instantiate_vcm(struct device *s) { return 0; }
+-- 
+2.43.0
+
