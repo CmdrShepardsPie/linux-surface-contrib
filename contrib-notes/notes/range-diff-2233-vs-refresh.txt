@@ -1,0 +1,140 @@
+ 1:  ac2d10a38 =  1:  a7a2d70a1 Revert "efi/x86: Set the PE/COFF header's NX compat flag unconditionally"
+ 2:  313aee3db =  2:  3bec7f908 PM: hibernate: Add a lockdown_hibernate parameter
+ 3:  ac369cd68 =  3:  a41a45a91 (surface3-oemb) add DMI matches for Surface 3 with broken DMI table
+ 4:  d18443adf =  4:  5eeb3a8f1 surface3-spi: workaround: disable DMA mode to avoid crash by default
+ 5:  6fc9c6d01 =  5:  005ca2a4e mwifiex: Add quirk resetting the PCI bridge on MS Surface devices
+ 6:  016ffdb1c =  6:  afaa0dc0c mwifiex: pcie: disable bridge_d3 for Surface gen4+
+ 7:  751cc736d !  7:  7fa9b1f71 Bluetooth: btusb: Lower passive lescan interval on Marvell 88W8897
+    @@ drivers/bluetooth/btusb.c: static struct usb_driver btusb_driver;
+     +#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(30)
+      
+      static const struct usb_device_id btusb_table[] = {
+    - 	/* Generic Bluetooth USB device */
+    + 	/*
+     @@ drivers/bluetooth/btusb.c: static const struct usb_device_id quirks_table[] = {
+      	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
+      	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
+      	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
+     +	{ USB_DEVICE(0x1286, 0x204c), .driver_info = BTUSB_LOWER_LESCAN_INTERVAL },
+      
+    - 	/* Intel Bluetooth devices */
+    - 	{ USB_DEVICE(0x8087, 0x0025), .driver_info = BTUSB_INTEL_COMBINED },
+    + 	/*
+    + 	 * NXP IW610 BT interfaces (Marvell-lineage silicon, same quirk as
+     @@ drivers/bluetooth/btusb.c: static int btusb_probe(struct usb_interface *intf,
+      	if (id->driver_info & BTUSB_MARVELL)
+      		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
+ 8:  a4e7d882c =  8:  7f68b9891 ath10k: Add module parameters to override board files
+ 9:  fead7f6dd =  9:  46b0092e2 mei: me: Add Icelake device ID for iTouch
+10:  fe4c36f1b = 10:  9969f5de3 iommu: Use IOMMU passthrough mode for IPTS
+11:  73e65936a = 11:  6efa77db5 hid: Add support for Intel Precise Touch and Stylus
+12:  c68b16b09 = 12:  bd31ed22c iommu: intel: Disable source id verification for ITHC
+13:  e4b8bc568 = 13:  1e4b14ca3 hid: Add support for Intel Touch Host Controller
+14:  7ac9b1d3d = 14:  7b5c8afd3 rtc: Add basic support for RTC via Surface System Aggregator Module
+15:  bfb04ebe0 = 15:  8c08ff384 platform/surface: aggregator_registry: Add Surface Laptop 7 (ACPI)
+16:  c7d7fc40a = 16:  ed34636ae i2c: acpi: Implement RawBytes read access
+17:  4322eeed8 = 17:  52ab6fe0a platform/surface: Add driver for Surface Book 1 dGPU switch
+18:  8f47c935f = 18:  652f40238 Input: soc_button_array - support AMD variant Surface devices
+19:  42acec111 = 19:  baf54bb96 platform/surface: surfacepro3_button: don't load on amd variant
+20:  e2ea4a477 = 20:  5dc5d03ba USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3 Type-Cover
+21:  19ea82352 ! 21:  ee0c53c76 hid/multitouch: Turn off Type Cover keyboard backlight when suspending
+    @@ drivers/hid/hid-multitouch.c: MODULE_DESCRIPTION("HID multitouch panels");
+      #include "hid-haptic.h"
+      
+     @@ drivers/hid/hid-multitouch.c: MODULE_LICENSE("GPL");
+    - #define MT_QUIRK_APPLE_TOUCHBAR		BIT(23)
+      #define MT_QUIRK_YOGABOOK9I		BIT(24)
+      #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+    -+#define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
+    + #define MT_QUIRK_IGNORE_FEATURE_ID_MISMATCH	BIT(26)
+    ++#define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(27)
+      
+      #define MT_INPUTMODE_TOUCHSCREEN	0x02
+      #define MT_INPUTMODE_TOUCHPAD		0x03
+    @@ drivers/hid/hid-multitouch.c: struct mt_device {
+      
+      static void mt_post_parse_default_settings(struct mt_device *td,
+     @@ drivers/hid/hid-multitouch.c: static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+    - #define MT_CLS_APPLE_TOUCHBAR			0x0114
+      #define MT_CLS_YOGABOOK9I			0x0115
+      #define MT_CLS_EGALAX_P80H84			0x0116
+    -+#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
+    + #define MT_CLS_ASUS_ROG_Z13_FOLIO		0x0117
+    ++#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0118
+      #define MT_CLS_SIS				0x0457
+      
+      #define MT_DEFAULT_MAXCONTACT	10
+    @@ drivers/hid/hid-multitouch.c: static void mt_remove(struct hid_device *hdev)
+      	struct mt_device *td = hid_get_drvdata(hdev);
+      
+     +	unregister_pm_notifier(&td->pm_notifier);
+    - 	timer_delete_sync(&td->release_timer);
+    + 	timer_shutdown_sync(&td->release_timer);
+      
+      	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
+     @@ drivers/hid/hid-multitouch.c: static const struct hid_device_id mt_devices[] = {
+22:  0b6a42383 ! 22:  7c3df920c hid/multitouch: Add support for surface pro type cover tablet switch
+    @@ Commit message
+     
+      ## drivers/hid/hid-multitouch.c ##
+     @@ drivers/hid/hid-multitouch.c: MODULE_LICENSE("GPL");
+    - #define MT_QUIRK_YOGABOOK9I		BIT(24)
+      #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+    - #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
+    -+#define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
+    + #define MT_QUIRK_IGNORE_FEATURE_ID_MISMATCH	BIT(26)
+    + #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(27)
+    ++#define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(28)
+      
+      #define MT_INPUTMODE_TOUCHSCREEN	0x02
+      #define MT_INPUTMODE_TOUCHPAD		0x03
+    @@ drivers/hid/hid-multitouch.c: static int mt_resume(struct hid_device *hdev)
+     +	}
+      
+      	unregister_pm_notifier(&td->pm_notifier);
+    - 	timer_delete_sync(&td->release_timer);
+    + 	timer_shutdown_sync(&td->release_timer);
+23:  77336dc2a = 23:  19131db07 PCI: Add quirk to prevent calling shutdown method
+24:  1a6d634f2 = 24:  84f21b3e0 PCI: Add Surface Laptop Studio 2 devices to shutdown ops quirk
+25:  e0f373ebf = 25:  032a579b2 platform/surface: gpe: Add support for Surface Pro 9
+26:  373f6cef0 = 26:  2909c84fc ACPI: delay enumeration of devices with a _DEP pointing to an INT3472 device
+27:  cf832c703 = 27:  160d25d33 iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+28:  2daf19dc0 = 28:  685865718 platform/x86: int3472: Enable I2c daisy chain
+29:  4dcda1be5 = 29:  38c4e11eb media: i2c: Clarify that gain is Analogue gain in OV7251
+30:  1187e1397 = 30:  9edda096b media: v4l2-core: Acquire privacy led in v4l2_async_register_subdev()
+31:  908e96c38 = 31:  6f97c0d30 platform: x86: int3472: Add MFD cell for tps68470 LED
+32:  b7548ac2a = 32:  4890209ee include: mfd: tps68470: Add masks for LEDA and LEDB
+33:  fcdd90e13 = 33:  3633cf9f0 leds: tps68470: Add LED control for tps68470
+34:  adf6fd03d = 34:  2058b7f37 media: i2c: dw9719: fix probe error on surface go 2
+35:  1d2916758 = 35:  df3b5789e Add camera support for Surface Pro 9
+36:  1608d3bb5 = 36:  1f11817b4 media: ipu-bridge: Add front camera rotation quirks for Surface Pro 8 and 9
+37:  728618efa = 37:  6d1ac4814 ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7 override
+38:  e9f00b5fb = 38:  fe6be5b90 ACPI: Add AMD 13" Surface Laptop 4 model to irq 7 override quirk
+39:  fa870ab96 = 39:  3ba2c0349 HID: Add hid-surface driver to filter BTN_0 (FN key)
+40:  4744e3a8a ! 40:  daa918412 hid/multitouch: Prevent mode set on Surface Laptop Studio 2 touch pad
+    @@ Commit message
+     
+      ## drivers/hid/hid-multitouch.c ##
+     @@ drivers/hid/hid-multitouch.c: MODULE_LICENSE("GPL");
+    - #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+    - #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
+    - #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
+    -+#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(28)
+    + #define MT_QUIRK_IGNORE_FEATURE_ID_MISMATCH	BIT(26)
+    + #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(27)
+    + #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(28)
+    ++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(29)
+      
+      #define MT_INPUTMODE_TOUCHSCREEN	0x02
+      #define MT_INPUTMODE_TOUCHPAD		0x03
+     @@ drivers/hid/hid-multitouch.c: static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+    - #define MT_CLS_YOGABOOK9I			0x0115
+      #define MT_CLS_EGALAX_P80H84			0x0116
+    - #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
+    -+#define MT_CLS_SURFACE_TOUCHPAD                0x0118
+    + #define MT_CLS_ASUS_ROG_Z13_FOLIO		0x0117
+    + #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0118
+    ++#define MT_CLS_SURFACE_TOUCHPAD                0x0119
+      #define MT_CLS_SIS				0x0457
+      
+      #define MT_DEFAULT_MAXCONTACT	10
