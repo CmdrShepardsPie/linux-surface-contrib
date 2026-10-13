@@ -1,4 +1,4 @@
-From 7889794c87f8ead7509001798da50606553010d4 Mon Sep 17 00:00:00 2001
+From d41a1eacc0435dcd1d18b4851dadce1025f5ac58 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:03:38 +0100
 Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
@@ -37,9 +37,9 @@ index 8bcbfe3d9..c78806d35 100644
  	 * DMA alias provides us with a PCI device and alias.  The only case
  	 * where the it will return an alias on a different bus than the
 -- 
-2.53.0
+2.43.0
 
-From 0a194a407857f526d06d1e459b81faa5be2e4275 Mon Sep 17 00:00:00 2001
+From c0b5eaa3f86c79b2b0d83f2cbbea86478dda475b Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Sun, 11 Dec 2022 12:10:54 +0100
 Subject: [PATCH] hid: Add support for Intel Touch Host Controller
@@ -2776,5 +2776,5 @@ index 000000000..aec320d4e
 +int ithc_reset(struct ithc *ithc);
 +
 -- 
-2.53.0
+2.43.0
 

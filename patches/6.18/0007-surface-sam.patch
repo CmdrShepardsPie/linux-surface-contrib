@@ -1,4 +1,4 @@
-From d0c0e2cf7bca1d124ec51f129d2ae259d0291cb5 Mon Sep 17 00:00:00 2001
+From 426c90cfe69b9cb077c8b29f3212dec32b3a9359 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 17 Jun 2022 02:14:00 +0200
 Subject: [PATCH] rtc: Add basic support for RTC via Surface System Aggregator
@@ -179,9 +179,9 @@ index 000000000..f6c17c4e9
 +MODULE_DESCRIPTION("RTC driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 -- 
-2.53.0
+2.43.0
 
-From da4d9417542e3a5ba645dc5c069c8709344c6d7d Mon Sep 17 00:00:00 2001
+From 9e9a81309f3736afb6d418dfb71bae06bfc5147f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 20 Apr 2025 01:05:14 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Laptop 7
@@ -193,10 +193,10 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index a594d5fcf..07b03aa4f 100644
+index d29158fab..3c03ce386 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -460,6 +460,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+@@ -458,6 +458,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
  	/* Surface Laptop 6 */
  	{ "MSHW0530", (unsigned long)ssam_node_group_sl6 },
  
@@ -207,5 +207,5 @@ index a594d5fcf..07b03aa4f 100644
  	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
  
 -- 
-2.53.0
+2.43.0
 
