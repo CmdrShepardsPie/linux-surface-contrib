@@ -789,3 +789,68 @@ index 025c4cc682d7..1aba17b61910 100644
 -- 
 2.43.0
 
+From 13597cbb9ecbe805d9ee40be6e36bbb64a19b1b2 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 17:00:52 -0600
+Subject: [PATCH] hid/multitouch: Write Type Cover backlight value by usage
+ index
+
+update_keyboard_backlight() stores the new backlight state in
+field->value[field->index]. field->index is the field's position within
+its report, not a position in the field's value array, so for a report
+in which the backlight field is not the first field this writes the
+wrong value, and if the index is beyond the field's values it writes
+outside the value array. The report descriptor comes from the device,
+so a device claiming the Type Cover IDs controls both.
+
+Look up the value slot of the backlight usage and check it against the
+field's report count before writing. When the backlight usage is the
+first usage of the first field in its report, the written slot is the
+same as before. This has not been tested on a Type Cover with these
+IDs.
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 1aba17b61910..50625d040f1b 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2212,6 +2212,7 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ {
+ 	struct usb_device *udev;
+ 	struct hid_field *field = NULL;
++	unsigned int i;
+ 
+ 	/*
+ 	 * The device table matches any bus; only USB devices have a
+@@ -2233,7 +2234,19 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ 		goto out;
+ 	}
+ 
+-	field->value[field->index] = enabled ? 0x01ff00ff : 0x00ff00ff;
++	/* Find the value slot of the backlight usage */
++	for (i = 0; i < field->maxusage; i++)
++		if (field->usage[i].hid == MS_TYPE_COVER_FEATURE_REPORT_USAGE)
++			break;
++
++	if (i == field->maxusage ||
++	    field->usage[i].usage_index >= field->report_count) {
++		hid_err(hdev, "invalid backlight field\n");
++		goto out;
++	}
++
++	field->value[field->usage[i].usage_index] =
++		enabled ? 0x01ff00ff : 0x00ff00ff;
+ 	hid_hw_request(hdev, field->report, HID_REQ_SET_REPORT);
+ 
+ out:
+-- 
+2.43.0
+
