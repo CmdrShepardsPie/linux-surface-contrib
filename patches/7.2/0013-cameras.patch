@@ -1261,3 +1261,51 @@ index 349aebb77f2e..18021a8919ac 100644
 -- 
 2.43.0
 
+From f20ee4e62a7c1767cd12ceddf332e78608362ca0 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 17:01:33 -0600
+Subject: [PATCH] media: v4l2-core: Only look up privacy LED for sub-devices
+ with a device
+
+Acquiring the privacy LED was moved from
+__v4l2_async_register_subdev_sensor(), which rejects sub-devices without
+a struct device, into __v4l2_async_register_subdev(), which treats
+sd->dev as optional. The lookup goes through led_get(sd->dev, ...),
+which dereferences the device, so registering a sub-device without one
+would crash.
+
+Only look up the LED when the sub-device has a device. Without one,
+sd->privacy_led stays NULL and the release paths do nothing.
+
+This fixes the patch "media: v4l2-core: Acquire privacy led in
+v4l2_async_register_subdev()" in the cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 1645af94c7f8..7f701d02fe6f 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -811,9 +811,12 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		return ret;
++	/* The LED is looked up through the device, which is optional here */
++	if (sd->dev) {
++		ret = v4l2_subdev_get_privacy_led(sd);
++		if (ret < 0)
++			return ret;
++	}
+ 
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+-- 
+2.43.0
+
