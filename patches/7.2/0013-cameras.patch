@@ -1,4 +1,4 @@
-From 8ed8c55e25f374558371d588cbc50831482d52ce Mon Sep 17 00:00:00 2001
+From 0886e1d2d7240f477b8e797f1beb3217cfca8a64 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index 99af95f33865..522101ba86a6 100644
 -- 
 2.43.0
 
-From c4dd4cfc5574cd67150c29e8580ac38d47692edd Mon Sep 17 00:00:00 2001
+From 126e0761020ce608a0379cde1ff22744bcbedca0 Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -184,7 +184,7 @@ index 90f76cbb58c5..6cae692b0991 100644
 -- 
 2.43.0
 
-From b4b1cd7144f180ff28eccdd681b2fb8614049871 Mon Sep 17 00:00:00 2001
+From a9ca498a972178b4867062f1c59698f01b4b3255 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -221,7 +221,7 @@ index a77ed32abe55..3ef46bace187 100644
 -- 
 2.43.0
 
-From 42ef967603701f5bdac7618f9cfa2d5d235b095a Mon Sep 17 00:00:00 2001
+From 287fb1589e7d1972974d748042c70fbc2743cdc6 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Tue, 21 Mar 2023 13:45:26 +0000
 Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
@@ -260,7 +260,7 @@ index 311c61d9e25d..a1a91b41eb4d 100644
 -- 
 2.43.0
 
-From 9026f728869ae1216da3c44f6cf13f96ad47569a Mon Sep 17 00:00:00 2001
+From 16f9888e82360fe6c6cb823f6d35eb184b414b5f Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Wed, 22 Mar 2023 11:01:42 +0000
 Subject: [PATCH] media: v4l2-core: Acquire privacy led in
@@ -311,7 +311,7 @@ index 570df3c415b0..8e9ae4b81b16 100644
 -- 
 2.43.0
 
-From e328daba5396472d9fdf54c5351f0cd32bd84d0f Mon Sep 17 00:00:00 2001
+From e2b81eacad8fb1e47cd835d53b27d1ab1e652df1 Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:16 +0800
 Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
@@ -354,7 +354,7 @@ index 3ef46bace187..e9b3a8a561a1 100644
 -- 
 2.43.0
 
-From 218b85f9caf77c35c722b5581c15610e99a5db22 Mon Sep 17 00:00:00 2001
+From e469f00d03556cca572164a55e1fa0557553653a Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:17 +0800
 Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
@@ -395,7 +395,7 @@ index 7807fa329db0..2d2abb25b944 100644
 -- 
 2.43.0
 
-From baf1c7ac77e36e05fc802f0d8af9070e3b0dcfd0 Mon Sep 17 00:00:00 2001
+From 277f0590d8088d45b639f893f3aabf37f5b4bcdc Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:18 +0800
 Subject: [PATCH] leds: tps68470: Add LED control for tps68470
@@ -646,7 +646,7 @@ index 000000000000..35aeb5db89c8
 -- 
 2.43.0
 
-From 0a8008abc37d4afef67a74e1a347099f2e0ae50c Mon Sep 17 00:00:00 2001
+From 4f713ffc61a2e22175e03e25f2435da6880ea7a1 Mon Sep 17 00:00:00 2001
 From: mojyack <mojyack@gmail.com>
 Date: Tue, 26 Mar 2024 05:55:44 +0900
 Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
@@ -678,7 +678,7 @@ index 3b7ba88fd67c..440888507802 100644
 -- 
 2.43.0
 
-From dd630511657cbed044b14553ed92d4332c93c572 Mon Sep 17 00:00:00 2001
+From d7971eb5e4f3d9c392d2c1efb476105afbdb60dd Mon Sep 17 00:00:00 2001
 From: Tooraj Taraz <tooraj.taraz@yahoo.com>
 Date: Wed, 31 Dec 2025 00:35:50 +0100
 Subject: [PATCH] Add camera support for Surface Pro 9
@@ -1019,7 +1019,7 @@ index 115bb37577a1..b2a54733df20 100644
 -- 
 2.43.0
 
-From 986c45cdf702ed4a64dbe883140b92be73fc6955 Mon Sep 17 00:00:00 2001
+From 223bebcc1ee645b7cbb4a211785f111c9fe0a181 Mon Sep 17 00:00:00 2001
 From: gabrielstedman <gabrielstedman@users.noreply.github.com>
 Date: Fri, 13 Mar 2026 08:52:07 +0000
 Subject: [PATCH] media: ipu-bridge: Add front camera rotation quirks for
@@ -1060,6 +1060,61 @@ index 52357db37d60..8a82fd99e175 100644
  	{} /* Terminating entry */
  };
  
+-- 
+2.43.0
+
+From 543e8cc0b3173eadd5e93d2cb3254e5991e6ea32 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:39:38 -0600
+Subject: [PATCH] platform/x86: int3472: discrete: Set error state for SP9 GPIO
+ types
+
+The Surface Pro 9 handling adds GPIO types 0x08 and 0x11 to
+skl_int3472_handle_gpio_resources(), but leaves two variables
+uninitialised that are used after the switch:
+
+- When registering the regulator for type 0x08 fails, err_msg is never
+  set, so dev_err_probe() is passed an uninitialised format pointer.
+
+- Type 0x11 sets neither ret nor err_msg, so whether the GPIO is put
+  and whether probing fails depends on whatever ret happens to contain.
+  If the GPIO is kept, nothing ever releases it, and a later rebind of
+  the driver fails to request it again.
+
+Set err_msg on the 0x08 failure path, replacing the separate error
+message there, which printed the wrong values. For type 0x11, set ret
+to 1 so the GPIO is released after being requested (which drives it
+inactive) and the remaining resources are still handled. Both were
+found with -Wmaybe-uninitialized, which the kernel build disables by
+default.
+
+This fixes the patch "Add camera support for Surface Pro 9" in the
+cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index b2a54733df20..6d65adb0a3a4 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -395,10 +395,12 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 			 con_id, NULL);
+ 		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
+ 		    if (ret) {
+-			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
++			err_msg = "Failed to register regulator\n";
+ 		    }
+ 		    break;
+ 		case 0x11:
++		    /* Not used yet: release the GPIO, now driven inactive. */
++		    ret = 1;
+ 		    break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
 -- 
 2.43.0
 
