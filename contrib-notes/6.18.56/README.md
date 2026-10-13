@@ -63,8 +63,8 @@ needs. This is the one judgement call in the rebase; reviewers should check it.
 | `git am` of the patch files onto v6.18.56 | 41 commits, tree `79cabb2b…` |
 | `update-series.sh` from master's `patches/6.18` (v6.18.18) | same 41 commits and tree; found the two empty commits by itself; stopped at the same six conflicts |
 | per-commit build, W=1, merged CI config (`percommit-build.sh`) | 41/41 build (39 compile their C files, 2 have none); warnings only the pre-existing F3 (2, int3472 format strings in "Add camera support for Surface Pro 9") and F4 (7, unused IPTS descriptors), as on 7.2 |
-| full `make all`, merged CI config (`full-build.sh`) | running; this row is updated when it finishes |
-| sparse (0.6.5-rc1 from source) on the touched C files, against vanilla v6.18.56 | after the full build |
+| full `make all`, merged CI config (`full-build.sh`) | rc 0, 3 h 4 min on 2 CPUs; warnings only F3's two |
+| sparse (0.6.5-rc1 from source) on the touched C files, against vanilla v6.18.56 | 54/54 touched files checked on the series, 33/33 of those that exist in vanilla checked there; the only finding the series adds is the pre-existing F5 (`use_dma` not static, in "surface3-spi: workaround: disable DMA mode to avoid crash by default"), as on 7.2 |
 
 Not done: KUnit, a boot in QEMU, a boot on a device.
 
