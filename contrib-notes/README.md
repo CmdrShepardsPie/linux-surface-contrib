@@ -53,7 +53,8 @@ patches.
 
 - `update-series.sh`: moves a patch set to a newer point release in one run (rebase, leave
   out what stable already has, regenerate the patch files, verify them, optionally build).
-  `6.18.56/README.md` shows a run.
+  `6.18.56/README.md` shows a run. Its tests are in `tests/`: `update-series-tests.sh` (13
+  cases on toy repositories) and `mutate-update-series.sh` (9 mutations, all caught).
 - `6.18.56/`: the 6.18 LTS rebase, its conflict resolutions and why the dirtyfrag backports
   are left out.
 

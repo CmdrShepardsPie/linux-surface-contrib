@@ -1,0 +1,11 @@
+# Mutations of ../update-series.sh, one per line: SED-EXPRESSION@@WHAT IT BREAKS.
+# Every one must make update-series-tests.sh fail. Run: bash mutate-update-series.sh
+s/^unset CDPATH$/:/@@CDPATH honoured
+s/fetch -q origin "refs\/tags/fetch -q --depth=1 origin "refs\/tags/@@shallow fetch
+/^dirty=/,/^no_stray_patches "\${ks}"$/s/^no_stray_patches "\${ks}"$/:/@@early stray check removed
+s/^      git -C "\${ks}" checkout -q "\${orig}"$/      :/@@checkout not restored on tool failure
+s/^    if git -C "\${wt}" diff --cached --quiet; then$/    if false; then/@@empty resolution not handled
+s/^  git -C "\${ks}" worktree remove --force "\${old}"$/  :/@@worktree left after a failed git am
+s/^  if ((n > 0)); then$/  if true; then/@@nothing-left case not handled
+s/^    \[\[ -z \${unmerged} \]\] || die/    true || die/@@unresolved conflicts not refused
+s/^  to=\$(sed -n .*/  to=v9.9.2/@@default target not computed

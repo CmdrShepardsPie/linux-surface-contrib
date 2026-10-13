@@ -37,14 +37,26 @@
 # the files, then run "update-series.sh --continue KERNEL_TREE OUT_DIR". Commits get a fixed
 # committer and date, so the "From <id>" lines in the patch files are the same on every run.
 #
+# If a hand resolution leaves a commit with no changes (the target release already has
+# it), --continue records it as already in the release, like any other empty commit.
+#
 # Needs: git, git-format-patchsets (https://github.com/qzed/git-tools; GIT_FORMAT_PATCHSETS
 # names it), and for --percommit/--full the kernel build dependencies. The verification and
 # build helpers are taken from this directory: verify-series.sh,
 # 7.2.10/scripts/percommit-build.sh and 7.2.10/scripts/full-build.sh.
+#
+# Tests: tests/update-series-tests.sh (a toy repository; no kernel needed), and
+# tests/mutate-update-series.sh, which checks that they catch every mutation in
+# tests/update-series-mutations.txt. Not covered: --percommit and --full (they need a
+# kernel tree), and the real git-format-patchsets (the tests stand in git format-patch,
+# which writes one file per commit).
 set -euo pipefail
 shopt -s inherit_errexit
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Paths are taken as given: with CDPATH set, cd could resolve a relative path through it to
+# another directory (and prints the one it chose).
+unset CDPATH
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)
 tool=${GIT_FORMAT_PATCHSETS:-git-format-patchsets}
 # A placeholder committer for the rebuilt commits, as in genpatchsets.sh.
 id_email=builder@example.invalid # privacy-scan: allow (reserved .invalid address, no person)
@@ -72,6 +84,14 @@ while (($#)); do
   esac
 done
 
+# no_stray_patches KS: git-format-patchsets writes into KS's top directory, and every
+# *.patch there is collected afterwards, so there must be none beforehand.
+no_stray_patches() {
+  local stray
+  stray=$(find "$1" -maxdepth 1 -name '*.patch' -print -quit)
+  [[ -z ${stray} ]] || die "$1 has *.patch files in its top directory (${stray##*/}); move them away first"
+}
+
 # finish: regenerate the patch files from the worktree, verify them, write the report, build.
 finish() {
   local wt=$1 dir=$2 from to old_tip n tree
@@ -88,16 +108,24 @@ finish() {
   ks=$(<"${dir}/.kernel-tree")
   tip=$(git -C "${wt}" rev-parse HEAD)
   orig=$(git -C "${ks}" symbolic-ref -q --short HEAD || git -C "${ks}" rev-parse HEAD)
-  git -C "${ks}" checkout -q --detach "${tip}"
-  (cd "${ks}" && EDITOR=true "${tool}" -t --no-confirm "${to}..HEAD" >/dev/null && mv ./*.patch "${dir}/patches/")
-  git -C "${ks}" checkout -q "${orig}"
-  bash "${here}/verify-series.sh" "${ks}" "${to}" "${dir}/patches" "${tree}" >/dev/null ||
-    die "the regenerated patch files don't reproduce the tree ${tree}"
+  # Nothing left (every commit is in the release already): no patch files to write.
+  if ((n > 0)); then
+    no_stray_patches "${ks}"
+    git -C "${ks}" checkout -q --detach "${tip}"
+    if ! (cd -- "${ks}" >/dev/null && EDITOR=true "${tool}" -t --no-confirm "${to}..HEAD" >/dev/null &&
+      mv ./*.patch "${dir}/patches/"); then
+      rm -f -- "${ks}"/*.patch
+      git -C "${ks}" checkout -q "${orig}"
+      die "${tool} failed; ${ks} is back on ${orig}. Re-run with --continue once it's fixed."
+    fi
+    git -C "${ks}" checkout -q "${orig}"
+    bash "${here}/verify-series.sh" "${ks}" "${to}" "${dir}/patches" "${tree}" >/dev/null ||
+      die "the regenerated patch files don't reproduce the tree ${tree}"
+  fi
   git -C "${ks}" range-diff --no-color "${from}..${old_tip}" "${to}..${tip}" >"${dir}/range-diff.txt" || true
-  local n_old n_files files
+  local n_old n_files
   n_old=$(git -C "${ks}" rev-list --count "${from}..${old_tip}")
-  files=("${dir}"/patches/*.patch)
-  n_files=${#files[@]}
+  n_files=$(find "${dir}/patches" -maxdepth 1 -name '*.patch' | wc -l)
   {
     echo "from: ${from} (${n_old} commits)"
     echo "to: ${to} (${n} commits)"
@@ -150,29 +178,40 @@ pick() {
 
 if ((cont)); then
   (($# == 2)) || die "usage: update-series.sh --continue KERNEL_TREE OUT_DIR"
-  dir=$(cd "$2" && pwd)
+  dir=$(cd -- "$2" >/dev/null && pwd)
+  [[ -s ${dir}/worktree ]] || die "${dir} holds no run to continue"
   wt=$(<"${dir}/worktree")
-  [[ -s ${dir}/.conflict ]] || die "nothing to continue in ${dir}"
   mapfile -t drops <"${dir}/.drops"
-  git -C "${wt}" -c core.editor=true cherry-pick --continue >/dev/null ||
-    die "git cherry-pick --continue failed; are all conflicts resolved and added?"
-  cat "${dir}/.conflict" >>"${dir}/.resolved"
-  rm -f "${dir}/.conflict"
-  sed -i 1d "${dir}/.todo"
+  if [[ -s ${dir}/.conflict ]]; then
+    unmerged=$(git -C "${wt}" ls-files -u)
+    [[ -z ${unmerged} ]] || die "conflicts in ${wt} aren't resolved yet; git add the files first"
+    if git -C "${wt}" diff --cached --quiet; then
+      # The resolution left nothing to commit: the release already has this change.
+      git -C "${wt}" cherry-pick --skip >/dev/null
+      cat "${dir}/.conflict" >>"${dir}/.empty"
+    else
+      git -C "${wt}" -c core.editor=true cherry-pick --continue >/dev/null ||
+        die "git cherry-pick --continue failed in ${wt}"
+      cat "${dir}/.conflict" >>"${dir}/.resolved"
+    fi
+    rm -f "${dir}/.conflict"
+    sed -i 1d "${dir}/.todo"
+  fi
   pick "${wt}" "${dir}"
   finish "${wt}" "${dir}"
   exit 0
 fi
 
 (($# == 3 || $# == 4)) || die "usage: update-series.sh [options] KERNEL_TREE PATCH_DIR FROM_TAG [TO_TAG] (see --help)"
-ks=$(cd "$1" && pwd)
-patches=$(cd "$2" && pwd)
+ks=$(cd -- "$1" >/dev/null && pwd)
+patches=$(cd -- "$2" >/dev/null && pwd)
 from=$3
 to=${4:-}
 [[ ${from} =~ ^v([0-9]+\.[0-9]+)\.[0-9]+$ ]] || die "FROM_TAG must look like v6.18.18"
 series=${BASH_REMATCH[1]}
 dirty=$(git -C "${ks}" status --porcelain --untracked-files=no)
 [[ -z ${dirty} ]] || die "${ks} has local changes"
+no_stray_patches "${ks}"
 if [[ -z ${to} ]]; then
   tags=$(git -C "${ks}" ls-remote --tags --refs origin "refs/tags/v${series}.*")
   to=$(sed -n 's|.*refs/tags/||p' <<<"${tags}" | grep -E "^v${series//./\\.}\.[0-9]+$" | sort -V | tail -n 1)
@@ -181,19 +220,23 @@ fi
 [[ ${to} =~ ^v${series//./\\.}\.[0-9]+$ ]] || die "TO_TAG ${to} isn't a ${series} point release"
 for t in "${from}" "${to}"; do
   if ! git -C "${ks}" rev-parse -q --verify "refs/tags/${t}" >/dev/null; then
-    git -C "${ks}" fetch -q --depth=1 origin "refs/tags/${t}:refs/tags/${t}"
+    # A full fetch: --depth would make the user's clone shallow.
+    git -C "${ks}" fetch -q origin "refs/tags/${t}:refs/tags/${t}" || die "can't fetch ${t} from ${ks}'s origin"
   fi
 done
 out=${out:-./update-${to}}
 mkdir -p "${out}"
-dir=$(cd "${out}" && pwd)
+dir=$(cd -- "${out}" >/dev/null && pwd)
 [[ ! -e ${dir}/worktree ]] || die "${dir} already holds a run; use another --out or --continue"
 
 # The old series, applied to FROM_TAG: this checks that PATCH_DIR really is based there.
 old=${dir}/old
 git -C "${ks}" worktree add -q --detach "${old}" "${from}"
-git -C "${old}" am -q --whitespace=nowarn "${patches}"/*.patch ||
+if ! git -C "${old}" am -q --whitespace=nowarn "${patches}"/*.patch >/dev/null 2>&1; then
+  git -C "${old}" am --abort >/dev/null 2>&1 || true
+  git -C "${ks}" worktree remove --force "${old}"
   die "${patches} doesn't apply to ${from}; give the release it's based on"
+fi
 old_tip=$(git -C "${old}" rev-parse HEAD)
 # Keep the old series reachable (for the range-diff) after its worktree goes.
 git -C "${ks}" update-ref "refs/update-series/${from}" "${old_tip}"
