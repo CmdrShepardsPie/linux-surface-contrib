@@ -9,3 +9,4 @@ s/^  git -C "\${ks}" worktree remove --force "\${old}"$/  :/@@worktree left afte
 s/^  if ((n > 0)); then$/  if true; then/@@nothing-left case not handled
 s/^    \[\[ -z \${unmerged} \]\] || die/    true || die/@@unresolved conflicts not refused
 s/^  to=\$(sed -n .*/  to=v9.9.2/@@default target not computed
+s/GIT_CONFIG_VALUE_0=12 EDITOR=true/EDITOR=true/@@index abbreviations depend on the clone

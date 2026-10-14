@@ -100,6 +100,10 @@ contrib-notes/update-series.sh --out /tmp/upd ks /tmp/p/patches/6.18 v6.18.56
 cp /tmp/upd/patches/*.patch patches/6.18/
 ```
 
-Without a target it takes the newest v6.18.N tag. `report.txt` lists what became empty,
+Without a target it takes the newest v6.18.N tag. It writes the patch files' `index` lines
+with 12-character blob abbreviations, so the files are the same in any clone; the branch's
+files were written before that, with git's default (9 characters in that clone). The
+content and the tree are the same either way: a re-run on 2026-10-13 gave tree `79cabb2b…`
+again, with the same two commits found already in v6.18.56. `report.txt` lists what became empty,
 what was dropped and which commits needed a hand resolution; add `--percommit CONFIG` and
 `--full CONFIG` for the build checks.

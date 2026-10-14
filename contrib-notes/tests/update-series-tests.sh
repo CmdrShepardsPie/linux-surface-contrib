@@ -118,6 +118,10 @@ t_empty_and_dropped_commits() {
   expect_report "dropped with --drop:"
   expect_report "  drop me"
   expect_report "patch files: 1"
+  # Blob abbreviations have a fixed length, whatever the clone's size.
+  ok
+  grep -qE '^index [0-9a-f]{12}\.\.[0-9a-f]{12}( |$)' "${w}/out/patches"/*.patch ||
+    fail "index lines don't use 12-character abbreviations"
   # The regenerated patch file applies to v9.9.2 and adds the feature, nothing else.
   ok
   git -C "${w}/ks" checkout -q --detach v9.9.2

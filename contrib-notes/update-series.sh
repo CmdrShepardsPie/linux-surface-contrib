@@ -112,7 +112,12 @@ finish() {
   if ((n > 0)); then
     no_stray_patches "${ks}"
     git -C "${ks}" checkout -q --detach "${tip}"
-    if ! (cd -- "${ks}" >/dev/null && EDITOR=true "${tool}" -t --no-confirm "${to}..HEAD" >/dev/null &&
+    # A fixed abbreviation length for the "index" lines: git otherwise lengthens them as the
+    # clone holds more objects, so the same series would give different files in a deeper
+    # clone.
+    if ! (cd -- "${ks}" >/dev/null &&
+      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.abbrev GIT_CONFIG_VALUE_0=12 EDITOR=true \
+        "${tool}" -t --no-confirm "${to}..HEAD" >/dev/null &&
       mv ./*.patch "${dir}/patches/"); then
       rm -f -- "${ks}"/*.patch
       git -C "${ks}" checkout -q "${orig}"
