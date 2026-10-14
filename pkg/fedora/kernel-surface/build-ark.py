@@ -101,12 +101,12 @@ outdir = os.path.realpath(args.outdir)
 
 # Clone the kernel-ark repository if it doesn't exist.
 if not os.path.exists(args.ark_dir):
-    system("git clone '%s' '%s'" % (args.ark_url, args.ark_dir))
+    system("git clone --progress '%s' '%s'" % (args.ark_url, args.ark_dir))
 
 os.chdir(args.ark_dir)
 
 # Check out the requested tag.
-system("git fetch --tags")
+system("git fetch --progress --tags")
 system("git clean -dfx")
 system("git checkout -b 'build/%s'" % time.time())
 system("git reset --hard '%s'" % args.package_tag)
