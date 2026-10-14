@@ -714,3 +714,78 @@ index 3174f77f3..5232b3de5 100644
 -- 
 2.43.0
 
+From d27f93ed61f1506ef5aafc29589743627f4613d0 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:39:06 -0600
+Subject: [PATCH] hid/multitouch: Add missing NULL checks to Type Cover tablet
+ switch
+
+The Type Cover tablet-mode switch code dereferences pointers that the
+surrounding code treats as optional:
+
+- mt_input_mapped() and mt_event() check rdata for NULL before using it
+  for multitouch collections, but the tablet-mode switch check that
+  follows reads rdata->application unconditionally.
+  mt_find_report_data() returns NULL if allocating the report data or
+  its application fails.
+
+- mt_event() and mt_remove() use field->hidinput->input without a
+  check, although hid-input clears field->hidinput when it drops an
+  input device without capabilities, and other code in this driver
+  checks it.
+
+Check both before use.
+
+This fixes the patch "hid/multitouch: Add support for surface pro type
+cover tablet switch" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 5232b3de5..f69d78fa2 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -1626,7 +1626,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+ 	 * We own an input device which acts as a tablet mode switch for
+ 	 * the Surface Pro Typecover.
+ 	 */
+-	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	if (field->application == MS_TYPE_COVER_APPLICATION && rdata &&
+ 	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
+ 	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
+ 		input = hi->input;
+@@ -1650,9 +1650,10 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
+ 	if (rdata && rdata->is_mt_collection)
+ 		return mt_touch_event(hid, field, usage, value);
+ 
+-	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	if (field->application == MS_TYPE_COVER_APPLICATION && rdata &&
+ 	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
+-	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
++	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE &&
++	    field->hidinput) {
+ 		input = field->hidinput->input;
+ 		input_report_switch(input, SW_TABLET_MODE, (value & 0xFF) != 0x22);
+ 		input_sync(input);
+@@ -2449,9 +2450,11 @@ static void mt_remove(struct hid_device *hdev)
+ 		if (get_type_cover_field(&hdev->report_enum[HID_INPUT_REPORT],
+ 					 &field,
+ 					 MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE)) {
+-			input = field->hidinput->input;
+-			input_report_switch(input, SW_TABLET_MODE, 0);
+-			input_sync(input);
++			if (field->hidinput) {
++				input = field->hidinput->input;
++				input_report_switch(input, SW_TABLET_MODE, 0);
++				input_sync(input);
++			}
+ 		} else {
+ 			hid_err(hdev, "couldn't find tablet mode field\n");
+ 		}
+-- 
+2.43.0
+
