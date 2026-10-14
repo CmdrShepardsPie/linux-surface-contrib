@@ -38,10 +38,13 @@ def main() -> int:
 
 	# Get list of surface kernels sorted by timestamp.
 	#
+	# After fedora patch 0004, spec replaces @BUILDID@ with value of its %{buildid},
+	# buildid is the actual value used to assemble the kernel filename.
+	#
 	# We use creation time here because it represents when the kernel was installed.
 	# Modification time can be a bit wonky and seems to correspond to the build date.
 	kernels: list[Path] = sorted(
-		boot.glob("vmlinuz-*.surface.*"),
+		boot.glob("vmlinuz-*@BUILDID@.*"),
 		key=lambda x: x.stat().st_ctime,
 		reverse=True,
 	)
