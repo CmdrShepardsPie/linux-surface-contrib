@@ -77,6 +77,38 @@ contrib-notes/update-series.sh --out /tmp/upd618 \
   KS <master's patches/6.18> v6.18.18 v6.18.56
 ```
 
+## Fedora packaging: two known differences
+
+linux-surface's Fedora package applies `patches/6.18` to Fedora's kernel-ark tree
+(`build-ark.py`), not to vanilla stable. At kernel-ark's `kernel-6.18.56-0` the series
+doesn't go through as is. Both of the following were found in a Fedora build of this
+branch; the kernel-ark side was not re-checked here. The branch stays as it is: these
+patches have to keep applying to vanilla v6.18.56, which other distributions build from.
+A Fedora build carries the two changes as Fedora-only fix-ups.
+
+- **Camera rotation (`0013-cameras.patch`).** kernel-ark's `ipu-bridge.c` already has
+  mainline's `upside_down_sensor_dmi_ids` table and its check in
+  `ipu_bridge_parse_rotation()` (from kernel-ark's v6.18.55 merge). The series' commit
+  "media: ipu-bridge: Add front camera rotation quirks for Surface Pro 8 and 9" adds its own
+  `override_rotation` table at the same places, so `git am -3` stops there. The fix-up uses
+  the 6.19 form instead: two entries in mainline's table, `INT33BE` for the Pro 8 and
+  `OVTI5693` for the Pro 9.
+
+  The two forms don't behave quite the same. The 6.18 table matches the whole system by DMI
+  and reports 180° for **every** IPU sensor on a Pro 8 or 9. Mainline's table matches by
+  ACPI ID, so only the front sensor is turned (checked against mainline's
+  `ipu_bridge_parse_rotation()`). So the Fedora build matches 6.19 here, and vanilla 6.18
+  differs for the rear camera unless its SSDB already reports it as inverted. That is still
+  to be checked on a device.
+- **`configs/surface-6.18.config`** still sets `CONFIG_SCSI_UFSHCD=m` and
+  `CONFIG_SCSI_UFSHCD_PCI=m`. kernel-ark's `make dist-srpm` then fails in
+  `dist-configs-check`. linux-surface removed the same override for 6.19 in `4c136ec`
+  ("configs: Remove CONFIG_SCSI_UFSHCD override"), together with the lines in
+  `pkg/fedora/kernel-surface/configs/fedora.config` that compensated for it. kernel-ark's
+  own x86_64 config already sets both to `m`, so dropping the override for Fedora doesn't
+  change that kernel. A 6.18 backport of `4c136ec` would change the other distributions'
+  6.18 builds too, so it isn't part of this rebase-only update.
+
 ## Checks
 
 | Check | Result |
