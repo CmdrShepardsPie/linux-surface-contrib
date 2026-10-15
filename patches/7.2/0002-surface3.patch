@@ -248,7 +248,6 @@ change.
 This fixes the patch "surface3-spi: workaround: disable DMA mode to
 avoid crash by default" in the surface3 patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: surface3
 ---
  drivers/input/touchscreen/surface3_spi.c | 2 +-

@@ -601,7 +601,6 @@ behaviour on working devices is unchanged.
 This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
 backlight when suspending" in the surface-typecover patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: surface-typecover
 ---
  drivers/hid/hid-multitouch.c | 19 ++++++++++---------
@@ -680,7 +679,6 @@ hid_is_usb().
 This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
 backlight when suspending" in the surface-typecover patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: surface-typecover
 ---
  drivers/hid/hid-multitouch.c | 12 +++++++++++-
@@ -739,7 +737,6 @@ Check both before use.
 This fixes the patch "hid/multitouch: Add support for surface pro type
 cover tablet switch" in the surface-typecover patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: surface-typecover
 ---
  drivers/hid/hid-multitouch.c | 15 +++++++++------
@@ -812,7 +809,6 @@ IDs.
 This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
 backlight when suspending" in the surface-typecover patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: surface-typecover
 ---
  drivers/hid/hid-multitouch.c | 15 ++++++++++++++-

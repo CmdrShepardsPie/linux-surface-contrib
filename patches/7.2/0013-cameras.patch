@@ -1091,7 +1091,6 @@ default.
 This fixes the patch "Add camera support for Surface Pro 9" in the
 cameras patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: cameras
 ---
  drivers/platform/x86/intel/int3472/discrete.c | 4 +++-
@@ -1130,7 +1129,6 @@ unsigned long, with %x, which -Wformat warns about. Use %lx.
 This fixes the patch "Add camera support for Surface Pro 9" in the
 cameras patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: cameras
 ---
  drivers/platform/x86/intel/int3472/discrete.c | 2 +-
@@ -1168,7 +1166,6 @@ Initialise val to zero so the message shows 0 when the read fails.
 This fixes the patch "Add camera support for Surface Pro 9" in the
 cameras patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: cameras
 ---
  drivers/media/i2c/ov13858.c | 2 +-
@@ -1210,7 +1207,6 @@ privacy LED helpers, so drop its include of v4l2-subdev-priv.h.
 This fixes the patch "media: v4l2-core: Acquire privacy led in
 v4l2_async_register_subdev()" in the cameras patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: cameras
 ---
  drivers/media/v4l2-core/v4l2-async.c  | 2 ++
@@ -1280,7 +1276,6 @@ sd->privacy_led stays NULL and the release paths do nothing.
 This fixes the patch "media: v4l2-core: Acquire privacy led in
 v4l2_async_register_subdev()" in the cameras patchset.
 
-Signed-off-by: Chris Simpson <chris@nilk.net>
 Patchset: cameras
 ---
  drivers/media/v4l2-core/v4l2-async.c | 9 ++++++---
