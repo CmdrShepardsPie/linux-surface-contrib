@@ -1744,3 +1744,106 @@ index e8aeb23dc..c562db794 100644
 -- 
 2.43.0
 
+From 6e26eca4a1dfbd00862ccd81f2f9e4e2bfb3e1bb Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:21 +0200
+Subject: [PATCH] media: ipu-bridge: Request non-continuous clock for ov5693 on
+ IPU6
+
+The ov5693 (INT33BE / OVTI5693) needs its MIPI clock lane gated while
+idle for the IPU6 CSI-2 receiver to lock onto the link, which the sensor
+driver does when the endpoint requests a non-continuous clock.
+
+The same sensor works with a free-running clock on the IPU3, so request
+it only for the IPU6 variants where it has been confirmed on hardware:
+Tiger Lake, Alder Lake-P and Alder Lake-N.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 8e3def7bf4102c5b32b597b2f6ea1419174fc480)
+[ backport: linux-surface's "Add camera support for Surface Pro 9" lists OVTI5693
+  right after INT33BE rather than in sorted order, so the new OVTI5693 entry goes
+  just before that one instead of at the sorted position; no other change ]
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 18 ++++++++++++++++++
+ include/media/ipu-bridge.h           |  5 +++++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 276f5c1d6..a2170cec2 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -50,6 +50,14 @@
+  *
+  * Please keep the list sorted by ACPI HID.
+  */
++/* IPU6 variants whose CSI-2 receiver needs the ov5693 clock lane gated */
++static const u16 ipu6_ov5693_ncont_clk[] = {
++	PCI_DEVICE_ID_INTEL_IPU6,		/* Tiger Lake */
++	PCI_DEVICE_ID_INTEL_IPU6EP_ADLP,	/* Alder Lake-P */
++	PCI_DEVICE_ID_INTEL_IPU6EP_ADLN,	/* Alder Lake-N */
++	0
++};
++
+ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	/* Himax HM11B1 */
+ 	IPU_SENSOR_CONFIG("HIMX11B1", 1, 384000000),
+@@ -60,10 +68,16 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	/* GalaxyCore GC0310 */
+ 	IPU_SENSOR_CONFIG("INT0310", 1, 55692000),
+ 	/* Omnivision OV5693 */
++	IPU_SENSOR_CONFIG_MATCH_FL("INT33BE", ipu6_ov5693_ncont_clk,
++				   IPU_BR_FL_CSI2_CLK_NONCONTINUOUS,
++				   1, 419200000),
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
+ 	/* Onsemi MT9M114 */
+ 	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
+ 	/* Omnivision OV5693 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG_MATCH_FL("OVTI5693", ipu6_ov5693_ncont_clk,
++				   IPU_BR_FL_CSI2_CLK_NONCONTINUOUS,
++				   1, 419200000),
+ 	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
+ 	/* Omnivision OV13858 - Surface Pro 9 */
+ 	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+@@ -508,6 +522,10 @@ static void ipu_bridge_create_fwnode_properties(
+ 						     cfg->link_freqs,
+ 						     cfg->nr_link_freqs);
+ 
++	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
++		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
++			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
++
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+ 					bridge->data_lanes, sensor->lanes);
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index c562db794..760f0767c 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -17,6 +17,10 @@
+ #define IPU_SENSOR_ROTATION_NORMAL		0
+ #define IPU_SENSOR_ROTATION_INVERTED		1
+ 
++/* Flags for struct ipu_sensor_config */
++/* The sensor's CSI-2 transmitter needs a non-continuous clock */
++#define IPU_BR_FL_CSI2_CLK_NONCONTINUOUS	BIT(0)
++
+ /*
+  * Sensor config specific to one or more IPUs, identified by their PCI product
+  * IDs, with flags describing what the sensor needs there. Entries for one HID
+@@ -80,6 +84,7 @@ enum ipu_bridge_ep_props {
+ 	IPU_BRIDGE_EP_DATA_LANES,
+ 	IPU_BRIDGE_EP_REMOTE_EP,
+ 	IPU_BRIDGE_EP_LINK_FREQUENCIES,
++	IPU_BRIDGE_EP_CLOCK_NONCONTINUOUS,
+ 	IPU_BRIDGE_EP_NUM_OF,
+ 	IPU_BRIDGE_EP_NUM_ENTRIES
+ };
+-- 
+2.43.0
+
