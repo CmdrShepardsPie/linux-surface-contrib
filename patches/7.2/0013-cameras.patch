@@ -1481,3 +1481,112 @@ index 02236f3db..cedc6ea03 100644
 -- 
 2.43.0
 
+From 7e93c7755ac2081e77fe7db427c3b858f5d76d88 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:19 +0200
+Subject: [PATCH] media: ipu-bridge: Assign endpoint property indices
+ dynamically
+
+Index the ep_properties array dynamically instead of plain numerical
+values as is done in mipi-disco-img.c.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 3436405beac895b589e2ad4a7be3b57e17605057)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 27 ++++++++++++++-------------
+ include/media/ipu-bridge.h           | 19 ++++++++++++++++++-
+ 2 files changed, 32 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index c89e6f0a4..0c4f5770e 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -433,6 +433,7 @@ static void ipu_bridge_create_fwnode_properties(
+ {
+ 	struct ipu_property_names *names = &sensor->prop_names;
+ 	struct software_node *nodes = sensor->swnodes;
++	unsigned int i = 0;
+ 
+ 	sensor->prop_names = prop_names;
+ 
+@@ -490,21 +491,21 @@ static void ipu_bridge_create_fwnode_properties(
+ 			PROPERTY_ENTRY_REF_ARRAY("lens-focus", sensor->vcm_ref);
+ 	}
+ 
+-	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
+-					sensor->prop_names.bus_type,
+-					V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
+-	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+-					sensor->prop_names.data_lanes,
+-					bridge->data_lanes, sensor->lanes);
+-	sensor->ep_properties[2] = PROPERTY_ENTRY_REF_ARRAY(
+-					sensor->prop_names.remote_endpoint,
+-					sensor->local_ref);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_BUS_TYPE)] =
++		PROPERTY_ENTRY_U32(names->bus_type,
++				   V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_DATA_LANES)] =
++		PROPERTY_ENTRY_U32_ARRAY_LEN(names->data_lanes,
++					     bridge->data_lanes, sensor->lanes);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_REMOTE_EP)] =
++		PROPERTY_ENTRY_REF_ARRAY(names->remote_endpoint,
++					 sensor->local_ref);
+ 
+ 	if (cfg->nr_link_freqs > 0)
+-		sensor->ep_properties[3] = PROPERTY_ENTRY_U64_ARRAY_LEN(
+-			sensor->prop_names.link_frequencies,
+-			cfg->link_freqs,
+-			cfg->nr_link_freqs);
++		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_LINK_FREQUENCIES)] =
++			PROPERTY_ENTRY_U64_ARRAY_LEN(names->link_frequencies,
++						     cfg->link_freqs,
++						     cfg->nr_link_freqs);
+ 
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index b46b6693f..e8aeb23dc 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -64,6 +64,23 @@ enum ipu_sensor_swnodes {
+ 	SWNODE_COUNT
+ };
+ 
++enum ipu_bridge_ep_props {
++	IPU_BRIDGE_EP_BUS_TYPE,
++	IPU_BRIDGE_EP_DATA_LANES,
++	IPU_BRIDGE_EP_REMOTE_EP,
++	IPU_BRIDGE_EP_LINK_FREQUENCIES,
++	IPU_BRIDGE_EP_NUM_OF,
++	IPU_BRIDGE_EP_NUM_ENTRIES
++};
++
++/*
++ * Get the index of the next property in a property array, with a given maximum
++ * value.
++ */
++#define IPU_BRIDGE_NEXT_PROPERTY(index, max)		\
++	(WARN_ON((index) > IPU_BRIDGE_##max) ?		\
++	 IPU_BRIDGE_##max : (index)++)
++
+ /* Data representation as it is in ACPI SSDB buffer */
+ struct ipu_sensor_ssdb {
+ 	u8 version;
+@@ -141,7 +158,7 @@ struct ipu_sensor {
+ 	const char *vcm_type;
+ 
+ 	struct ipu_property_names prop_names;
+-	struct property_entry ep_properties[5];
++	struct property_entry ep_properties[IPU_BRIDGE_EP_NUM_ENTRIES];
+ 	struct property_entry dev_properties[5];
+ 	struct property_entry ipu_properties[3];
+ 	struct property_entry ivsc_properties[1];
+-- 
+2.43.0
+
