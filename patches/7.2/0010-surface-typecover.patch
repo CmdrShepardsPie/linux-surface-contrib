@@ -574,3 +574,283 @@ index 1b8285c13..1c1dcf11e 100644
 -- 
 2.55.0
 
+From e1a5bcb7d8fae314000ca09ca52b74deddd62652 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:12:52 -0600
+Subject: [PATCH] hid/multitouch: Register Type Cover PM notifier after
+ starting the device
+
+mt_probe() registers td->pm_notifier for the Type Cover keyboard
+backlight before parsing the report descriptor. This has two problems:
+
+- The Apple Touch Bar check returns -ENODEV without unregistering the
+  notifier. td is devm-allocated, so it is freed while the notifier is
+  still on the PM notifier chain, and the next suspend calls into freed
+  memory.
+
+- A suspend during probe can run the notifier before hid_hw_start(), so
+  update_keyboard_backlight() would send a request to a device that has
+  not been started.
+
+Register the notifier only after hid_hw_start() has succeeded. Every
+exit path after that point returns success, so mt_remove() always
+unregisters it, and the error-path unregisters are no longer needed.
+The notifier itself still checks the backlight quirk at run time, so
+behaviour on working devices is unchanged.
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 1c1dcf11e..3174f77f3 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2294,9 +2294,6 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
+ 	hid_set_drvdata(hdev, td);
+ 
+-	td->pm_notifier.notifier_call = mt_pm_notifier;
+-	register_pm_notifier(&td->pm_notifier);
+-
+ 	INIT_LIST_HEAD(&td->applications);
+ 	INIT_LIST_HEAD(&td->reports);
+ 
+@@ -2335,10 +2332,8 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	timer_setup(&td->release_timer, mt_expired_timeout, 0);
+ 
+ 	ret = hid_parse(hdev);
+-	if (ret != 0) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret != 0)
+ 		return ret;
+-	}
+ 
+ 	if (mtclass->name == MT_CLS_APPLE_TOUCHBAR &&
+ 	    !hid_find_field(hdev, HID_INPUT_REPORT,
+@@ -2352,10 +2347,16 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 		hdev->quirks |= HID_QUIRK_NOGET;
+ 
+ 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+-	if (ret) {
+-		unregister_pm_notifier(&td->pm_notifier);
++	if (ret)
+ 		return ret;
+-	}
++
++	/*
++	 * Register only once the device is started: the notifier sends
++	 * requests to the device, and every exit path from here on returns
++	 * success, so mt_remove() is guaranteed to unregister it.
++	 */
++	td->pm_notifier.notifier_call = mt_pm_notifier;
++	register_pm_notifier(&td->pm_notifier);
+ 
+ 	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
+ 	if (ret)
+-- 
+2.43.0
+
+From dcb59037100211ef464c798eb14c7f270805018e Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:38:49 -0600
+Subject: [PATCH] hid/multitouch: Only toggle Type Cover backlight on USB
+ devices
+
+The Surface Type Cover entry in the device table matches the device ID
+on any bus, but update_keyboard_backlight() unconditionally treats the
+device as USB and uses hid_to_usb_dev(). For a non-USB device with the
+same IDs, this treats whatever sits two levels up in the device
+hierarchy as a usb_device on every suspend and resume: an unrelated
+device for transports such as I2C, or a NULL pointer for uhid.
+
+Return early unless the device is on USB, as other HID drivers do with
+hid_is_usb(). hid_is_usb() is provided by usbhid, which hid-multitouch
+did not depend on before, so only call it when usbhid is reachable.
+When hid-multitouch is built in and usbhid is a module, the backlight is
+left alone instead of failing to link. When both are modules,
+hid-multitouch now depends on usbhid, like other HID drivers using
+hid_is_usb().
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 3174f77f3..5232b3de5 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2228,9 +2228,19 @@ static void mt_expired_timeout(struct timer_list *t)
+ 
+ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ {
+-	struct usb_device *udev = hid_to_usb_dev(hdev);
++	struct usb_device *udev;
+ 	struct hid_field *field = NULL;
+ 
++	/*
++	 * The device table matches any bus; only USB devices have a
++	 * usb_device. hid_is_usb() lives in usbhid, so it can only be used
++	 * when usbhid is reachable from here.
++	 */
++	if (!IS_REACHABLE(CONFIG_USB_HID) || !hid_is_usb(hdev))
++		return;
++
++	udev = hid_to_usb_dev(hdev);
++
+ 	/* Wake up the device in case it's already suspended */
+ 	pm_runtime_get_sync(&udev->dev);
+ 
+-- 
+2.43.0
+
+From 175283a976b8a43b5ef1bfabe43cc15ce37a9665 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:39:06 -0600
+Subject: [PATCH] hid/multitouch: Add missing NULL checks to Type Cover tablet
+ switch
+
+The Type Cover tablet-mode switch code dereferences pointers that the
+surrounding code treats as optional:
+
+- mt_input_mapped() and mt_event() check rdata for NULL before using it
+  for multitouch collections, but the tablet-mode switch check that
+  follows reads rdata->application unconditionally.
+  mt_find_report_data() returns NULL if allocating the report data or
+  its application fails.
+
+- mt_event() and mt_remove() use field->hidinput->input without a
+  check, although hid-input clears field->hidinput when it drops an
+  input device without capabilities, and other code in this driver
+  checks it.
+
+Check both before use.
+
+This fixes the patch "hid/multitouch: Add support for surface pro type
+cover tablet switch" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 5232b3de5..f69d78fa2 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -1626,7 +1626,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+ 	 * We own an input device which acts as a tablet mode switch for
+ 	 * the Surface Pro Typecover.
+ 	 */
+-	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	if (field->application == MS_TYPE_COVER_APPLICATION && rdata &&
+ 	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
+ 	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
+ 		input = hi->input;
+@@ -1650,9 +1650,10 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
+ 	if (rdata && rdata->is_mt_collection)
+ 		return mt_touch_event(hid, field, usage, value);
+ 
+-	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	if (field->application == MS_TYPE_COVER_APPLICATION && rdata &&
+ 	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
+-	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
++	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE &&
++	    field->hidinput) {
+ 		input = field->hidinput->input;
+ 		input_report_switch(input, SW_TABLET_MODE, (value & 0xFF) != 0x22);
+ 		input_sync(input);
+@@ -2449,9 +2450,11 @@ static void mt_remove(struct hid_device *hdev)
+ 		if (get_type_cover_field(&hdev->report_enum[HID_INPUT_REPORT],
+ 					 &field,
+ 					 MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE)) {
+-			input = field->hidinput->input;
+-			input_report_switch(input, SW_TABLET_MODE, 0);
+-			input_sync(input);
++			if (field->hidinput) {
++				input = field->hidinput->input;
++				input_report_switch(input, SW_TABLET_MODE, 0);
++				input_sync(input);
++			}
+ 		} else {
+ 			hid_err(hdev, "couldn't find tablet mode field\n");
+ 		}
+-- 
+2.43.0
+
+From ee9366022f70659aacb7ec295abb81d095d73c25 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 17:00:52 -0600
+Subject: [PATCH] hid/multitouch: Write Type Cover backlight value by usage
+ index
+
+update_keyboard_backlight() stores the new backlight state in
+field->value[field->index]. field->index is the field's position within
+its report, not a position in the field's value array, so for a report
+in which the backlight field is not the first field this writes the
+wrong value, and if the index is beyond the field's values it writes
+outside the value array. The report descriptor comes from the device,
+so a device claiming the Type Cover IDs controls both.
+
+Look up the value slot of the backlight usage and check it against the
+field's report count before writing. When the backlight usage is the
+first usage of the first field in its report, the written slot is the
+same as before. This has not been tested on a Type Cover with these
+IDs.
+
+This fixes the patch "hid/multitouch: Turn off Type Cover keyboard
+backlight when suspending" in the surface-typecover patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index f69d78fa2..a707a1d4d 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -2231,6 +2231,7 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ {
+ 	struct usb_device *udev;
+ 	struct hid_field *field = NULL;
++	unsigned int i;
+ 
+ 	/*
+ 	 * The device table matches any bus; only USB devices have a
+@@ -2252,7 +2253,19 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ 		goto out;
+ 	}
+ 
+-	field->value[field->index] = enabled ? 0x01ff00ff : 0x00ff00ff;
++	/* Find the value slot of the backlight usage */
++	for (i = 0; i < field->maxusage; i++)
++		if (field->usage[i].hid == MS_TYPE_COVER_FEATURE_REPORT_USAGE)
++			break;
++
++	if (i == field->maxusage ||
++	    field->usage[i].usage_index >= field->report_count) {
++		hid_err(hdev, "invalid backlight field\n");
++		goto out;
++	}
++
++	field->value[field->usage[i].usage_index] =
++		enabled ? 0x01ff00ff : 0x00ff00ff;
+ 	hid_hw_request(hdev, field->report, HID_REQ_SET_REPORT);
+ 
+ out:
+-- 
+2.43.0
+
