@@ -1,0 +1,2135 @@
+From dd297372cdd9e28e325e60824d818a0827532d98 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sun, 10 Oct 2021 20:56:57 +0200
+Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
+ INT3472 device
+
+The clk and regulator frameworks expect clk/regulator consumer-devices
+to have info about the consumed clks/regulators described in the device's
+fw_node.
+
+To work around cases where this info is not present in the firmware tables,
+which is often the case on x86/ACPI devices, both frameworks allow the
+provider-driver to attach info about consumers to the clks/regulators
+when registering these.
+
+This causes problems with the probe ordering wrt drivers for consumers
+of these clks/regulators. Since the lookups are only registered when the
+provider-driver binds, trying to get these clks/regulators before then
+results in a -ENOENT error for clks and a dummy regulator for regulators.
+
+One case where we hit this issue is camera sensors such as e.g. the OV8865
+sensor found on the Microsoft Surface Go. The sensor uses clks, regulators
+and GPIOs provided by a TPS68470 PMIC which is described in an INT3472
+ACPI device. There is special platform code handling this and setting
+platform_data with the necessary consumer info on the MFD cells
+instantiated for the PMIC under: drivers/platform/x86/intel/int3472.
+
+For this to work properly the ov8865 driver must not bind to the I2C-client
+for the OV8865 sensor until after the TPS68470 PMIC gpio, regulator and
+clk MFD cells have all been fully setup.
+
+The OV8865 on the Microsoft Surface Go is just one example, all X86
+devices using the Intel IPU3 camera block found on recent Intel SoCs
+have similar issues where there is an INT3472 HID ACPI-device, which
+describes the clks and regulators, and the driver for this INT3472 device
+must be fully initialized before the sensor driver (any sensor driver)
+binds for things to work properly.
+
+On these devices the ACPI nodes describing the sensors all have a _DEP
+dependency on the matching INT3472 ACPI device (there is one per sensor).
+
+This allows solving the probe-ordering problem by delaying the enumeration
+(instantiation of the I2C-client in the ov8865 example) of ACPI-devices
+which have a _DEP dependency on an INT3472 device.
+
+The new acpi_dev_ready_for_enumeration() helper used for this is also
+exported because for devices, which have the enumeration_by_parent flag
+set, the parent-driver will do its own scan of child ACPI devices and
+it will try to enumerate those during its probe(). Code doing this such
+as e.g. the i2c-core-acpi.c code must call this new helper to ensure
+that it too delays the enumeration until all the _DEP dependencies are
+met on devices which have the new honor_deps flag set.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/acpi/scan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index 163a3cccf..5b520ddfa 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -2246,6 +2246,9 @@ static const char * const acpi_system_dev_ids[] = {
+ 
+ static void acpi_default_enumeration(struct acpi_device *device)
+ {
++	if (!acpi_dev_ready_for_enumeration(device))
++		return;
++
+ 	/*
+ 	 * Do not enumerate devices with enumeration_by_parent flag set as
+ 	 * they will be enumerated by their respective parents.
+-- 
+2.43.0
+
+From d9a3e0b1a616c0aaeabba842afe94567b7d50b71 Mon Sep 17 00:00:00 2001
+From: zouxiaoh <xiaohong.zou@intel.com>
+Date: Fri, 25 Jun 2021 08:52:59 +0800
+Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+
+Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
+The IPU driver allocates its own page table that is not mapped
+via the DMA, and thus the Intel IOMMU driver blocks access giving
+this error: DMAR: DRHD: handling fault status reg 3 DMAR:
+[DMA Read] Request device [00:05.0] PASID ffffffff
+fault addr 76406000 [fault reason 06] PTE Read access is not set
+As IPU is not an external facing device which is not risky, so use
+IOMMU passthrough mode for Intel IPUs.
+
+Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
+Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
+Tracked-On: #JIITL8-411
+Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
+Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
+Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
+Patchset: cameras
+---
+ drivers/iommu/intel/iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
+index 12139ac6b..e49ed6843 100644
+--- a/drivers/iommu/intel/iommu.c
++++ b/drivers/iommu/intel/iommu.c
+@@ -44,6 +44,13 @@
+ 		((pdev)->vendor == PCI_VENDOR_ID_INTEL && (pdev)->device == 0x34E4) \
+ 	)
+ 
++#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
++			   ((pdev)->device == 0x9a19 ||		\
++			    (pdev)->device == 0x9a39 ||		\
++			    (pdev)->device == 0x4e19 ||		\
++			    (pdev)->device == 0x465d ||		\
++			    (pdev)->device == 0x1919))
++
+ #define IOAPIC_RANGE_START	(0xfee00000)
+ #define IOAPIC_RANGE_END	(0xfeefffff)
+ #define IOVA_START_ADDR		(0x1000)
+@@ -213,12 +220,14 @@ int intel_iommu_enabled = 0;
+ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+ 
+ static int dmar_map_ipts = 1;
++static int dmar_map_ipu = 1;
+ static int intel_iommu_superpage = 1;
+ static int iommu_identity_mapping;
+ static int iommu_skip_te_disable;
+ static int disable_igfx_iommu;
+ 
+ #define IDENTMAP_AZALIA		4
++#define IDENTMAP_IPU		8
+ #define IDENTMAP_IPTS		16
+ 
+ const struct iommu_ops intel_iommu_ops;
+@@ -1420,6 +1429,9 @@ static int device_def_domain_type(struct device *dev)
+ 		if ((iommu_identity_mapping & IDENTMAP_AZALIA) && IS_AZALIA(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 
++		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
++			return IOMMU_DOMAIN_IDENTITY;
++
+ 		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 	}
+@@ -1721,6 +1733,9 @@ static int __init init_dmars(void)
+ 		iommu_set_root_entry(iommu);
+ 	}
+ 
++	if (!dmar_map_ipu)
++		iommu_identity_mapping |= IDENTMAP_IPU;
++
+ 	if (!dmar_map_ipts)
+ 		iommu_identity_mapping |= IDENTMAP_IPTS;
+ 
+@@ -3988,6 +4003,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ /* Q35 integrated gfx dmar support is totally busted. */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x29b2, quirk_iommu_igfx);
+ 
++static void quirk_iommu_ipu(struct pci_dev *dev)
++{
++	if (!IS_INTEL_IPU(dev))
++		return;
++
++	if (risky_device(dev))
++		return;
++
++	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
++	dmar_map_ipu = 0;
++}
++
+ static void quirk_iommu_ipts(struct pci_dev *dev)
+ {
+ 	if (!IS_IPTS(dev))
+@@ -4038,6 +4065,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
+ 
++/* disable IPU dmar support */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
++
+ /* disable IPTS dmar support */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
+-- 
+2.43.0
+
+From 78a56437a15fbea1f27174ced3f14b5f52ffc29b Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 10 Oct 2021 20:57:02 +0200
+Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
+
+The TPS68470 PMIC has an I2C passthrough mode through which I2C traffic
+can be forwarded to a device connected to the PMIC as though it were
+connected directly to the system bus. Enable this mode when the chip
+is initialised.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index a77ed32ab..3ef46bace 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -46,6 +46,13 @@ static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+ 		return ret;
+ 	}
+ 
++	/* Enable I2C daisy chain */
++	ret = regmap_write(regmap, TPS68470_REG_S_I2C_CTL, 0x03);
++	if (ret) {
++		dev_err(dev, "Failed to enable i2c daisy chain\n");
++		return ret;
++	}
++
+ 	dev_info(dev, "TPS68470 REVID: 0x%02x\n", version);
+ 
+ 	return 0;
+-- 
+2.43.0
+
+From 8b30bf3c28a74b872dbb4e9a74ef2657d0afdf77 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Tue, 21 Mar 2023 13:45:26 +0000
+Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
+
+Update the control ID for the gain control in the ov7251 driver to
+V4L2_CID_ANALOGUE_GAIN.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov7251.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
+index 311c61d9e..a1a91b41e 100644
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -1052,7 +1052,7 @@ static int ov7251_s_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_EXPOSURE:
+ 		ret = ov7251_set_exposure(ov7251, ctrl->val);
+ 		break;
+-	case V4L2_CID_GAIN:
++	case V4L2_CID_ANALOGUE_GAIN:
+ 		ret = ov7251_set_gain(ov7251, ctrl->val);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+@@ -1578,7 +1578,7 @@ static int ov7251_init_ctrls(struct ov7251 *ov7251)
+ 	ov7251->exposure = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 					     V4L2_CID_EXPOSURE, 1, 32, 1, 32);
+ 	ov7251->gain = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+-					 V4L2_CID_GAIN, 16, 1023, 1, 16);
++					 V4L2_CID_ANALOGUE_GAIN, 16, 1023, 1, 16);
+ 	v4l2_ctrl_new_std_menu_items(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
+-- 
+2.43.0
+
+From 456d10c5733611139f065a9dd74ddb1d741b6710 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Wed, 22 Mar 2023 11:01:42 +0000
+Subject: [PATCH] media: v4l2-core: Acquire privacy led in
+ v4l2_async_register_subdev()
+
+The current call to v4l2_subdev_get_privacy_led() is contained in
+v4l2_async_register_subdev_sensor(), but that function isn't used by
+all the sensor drivers. Move the acquisition of the privacy led to
+v4l2_async_register_subdev() instead.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c  | 4 ++++
+ drivers/media/v4l2-core/v4l2-fwnode.c | 4 ----
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 460bf3dbb..d395f7517 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -810,6 +810,10 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
++	ret = v4l2_subdev_get_privacy_led(sd);
++	if (ret < 0)
++		return ret;
++
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+ 	 * v4l2_subdev.dev), and async sub-device does not exist independently
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index 570df3c41..8e9ae4b81 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -1272,10 +1272,6 @@ int __v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd, struct module *m
+ 
+ 	v4l2_async_subdev_nf_init(notifier, sd);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		goto out_cleanup;
+-
+ 	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
+ 	if (ret < 0)
+ 		goto out_cleanup;
+-- 
+2.43.0
+
+From c3ea66c29efa481463f0698039d368f9961e0fe0 Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:16 +0800
+Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
+
+Add MFD cell for tps68470-led.
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index 3ef46bace..e9b3a8a56 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -17,7 +17,7 @@
+ #define DESIGNED_FOR_CHROMEOS		1
+ #define DESIGNED_FOR_WINDOWS		2
+ 
+-#define TPS68470_WIN_MFD_CELL_COUNT	3
++#define TPS68470_WIN_MFD_CELL_COUNT	4
+ 
+ static const struct mfd_cell tps68470_cros[] = {
+ 	{ .name = "tps68470-gpio" },
+@@ -203,8 +203,9 @@ static int skl_int3472_tps68470_probe(struct i2c_client *client)
+ 		cells[1].name = "tps68470-regulator";
+ 		cells[1].platform_data = (void *)board_data->tps68470_regulator_pdata;
+ 		cells[1].pdata_size = sizeof(struct tps68470_regulator_platform_data);
+-		cells[2].name = "tps68470-gpio";
+-		cells[2].swnode = board_data->tps68470_gpio_swnode;
++		cells[2].name = "tps68470-led";
++		cells[3].name = "tps68470-gpio";
++		cells[3].swnode = board_data->tps68470_gpio_swnode;
+ 
+ 		for (i = 0; i < board_data->n_gpiod_lookups; i++)
+ 			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
+-- 
+2.43.0
+
+From 08da5c394f07eb2e92c9856a63a66393dafd097e Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:17 +0800
+Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
+
+Add flags for both LEDA(TPS68470_ILEDCTL_ENA), LEDB
+(TPS68470_ILEDCTL_ENB), and current control mask for LEDB
+(TPS68470_ILEDCTL_CTRLB)
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Patchset: cameras
+---
+ include/linux/mfd/tps68470.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/linux/mfd/tps68470.h b/include/linux/mfd/tps68470.h
+index 7807fa329..2d2abb25b 100644
+--- a/include/linux/mfd/tps68470.h
++++ b/include/linux/mfd/tps68470.h
+@@ -34,6 +34,7 @@
+ #define TPS68470_REG_SGPO		0x22
+ #define TPS68470_REG_GPDI		0x26
+ #define TPS68470_REG_GPDO		0x27
++#define TPS68470_REG_ILEDCTL		0x28
+ #define TPS68470_REG_VCMVAL		0x3C
+ #define TPS68470_REG_VAUX1VAL		0x3D
+ #define TPS68470_REG_VAUX2VAL		0x3E
+@@ -94,4 +95,8 @@
+ #define TPS68470_GPIO_MODE_OUT_CMOS	2
+ #define TPS68470_GPIO_MODE_OUT_ODRAIN	3
+ 
++#define TPS68470_ILEDCTL_ENA		BIT(2)
++#define TPS68470_ILEDCTL_ENB		BIT(6)
++#define TPS68470_ILEDCTL_CTRLB		GENMASK(5, 4)
++
+ #endif /* __LINUX_MFD_TPS68470_H */
+-- 
+2.43.0
+
+From eb93c2259c2057e8247df67a45c88681a1b860db Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:18 +0800
+Subject: [PATCH] leds: tps68470: Add LED control for tps68470
+
+There are two LED controllers, LEDA indicator LED and LEDB flash LED for
+tps68470. LEDA can be enabled by setting TPS68470_ILEDCTL_ENA. Moreover,
+tps68470 provides four levels of power status for LEDB. If the
+properties called "ti,ledb-current" can be found, the current will be
+set according to the property values. These two LEDs can be controlled
+through the LED class of sysfs (tps68470-leda and tps68470-ledb).
+
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/leds/Kconfig         |  12 +++
+ drivers/leds/Makefile        |   1 +
+ drivers/leds/leds-tps68470.c | 185 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 198 insertions(+)
+ create mode 100644 drivers/leds/leds-tps68470.c
+
+diff --git a/drivers/leds/Kconfig b/drivers/leds/Kconfig
+index d0d318223..d79849790 100644
+--- a/drivers/leds/Kconfig
++++ b/drivers/leds/Kconfig
+@@ -1024,6 +1024,18 @@ config LEDS_TPS6105X
+ 	  It is a single boost converter primarily for white LEDs and
+ 	  audio amplifiers.
+ 
++config LEDS_TPS68470
++	tristate "LED support for TI TPS68470"
++	depends on LEDS_CLASS
++	depends on INTEL_SKL_INT3472
++	help
++	  This driver supports TPS68470 PMIC with LED chip.
++	  It provides two LED controllers, with the ability to drive 2
++	  indicator LEDs and 2 flash LEDs.
++
++	  To compile this driver as a module, choose M and it will be
++	  called leds-tps68470
++
+ config LEDS_IP30
+ 	tristate "LED support for SGI Octane machines"
+ 	depends on LEDS_CLASS
+diff --git a/drivers/leds/Makefile b/drivers/leds/Makefile
+index a68244bd5..a68a61c36 100644
+--- a/drivers/leds/Makefile
++++ b/drivers/leds/Makefile
+@@ -95,6 +95,7 @@ obj-$(CONFIG_LEDS_TCA6507)		+= leds-tca6507.o
+ obj-$(CONFIG_LEDS_TI_LMU_COMMON)	+= leds-ti-lmu-common.o
+ obj-$(CONFIG_LEDS_TLC591XX)		+= leds-tlc591xx.o
+ obj-$(CONFIG_LEDS_TPS6105X)		+= leds-tps6105x.o
++obj-$(CONFIG_LEDS_TPS68470)		+= leds-tps68470.o
+ obj-$(CONFIG_LEDS_TURRIS_OMNIA)		+= leds-turris-omnia.o
+ obj-$(CONFIG_LEDS_UPBOARD)		+= leds-upboard.o
+ obj-$(CONFIG_LEDS_WM831X_STATUS)	+= leds-wm831x-status.o
+diff --git a/drivers/leds/leds-tps68470.c b/drivers/leds/leds-tps68470.c
+new file mode 100644
+index 000000000..35aeb5db8
+--- /dev/null
++++ b/drivers/leds/leds-tps68470.c
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * LED driver for TPS68470 PMIC
++ *
++ * Copyright (C) 2023 Red Hat
++ *
++ * Authors:
++ *	Kate Hsuan <hpa@redhat.com>
++ */
++
++#include <linux/leds.h>
++#include <linux/mfd/tps68470.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++
++
++#define lcdev_to_led(led_cdev) \
++	container_of(led_cdev, struct tps68470_led, lcdev)
++
++#define led_to_tps68470(led, index) \
++	container_of(led, struct tps68470_device, leds[index])
++
++enum tps68470_led_ids {
++	TPS68470_ILED_A,
++	TPS68470_ILED_B,
++	TPS68470_NUM_LEDS
++};
++
++static const char *tps68470_led_names[] = {
++	[TPS68470_ILED_A] = "tps68470-iled_a",
++	[TPS68470_ILED_B] = "tps68470-iled_b",
++};
++
++struct tps68470_led {
++	unsigned int led_id;
++	struct led_classdev lcdev;
++};
++
++struct tps68470_device {
++	struct device *dev;
++	struct regmap *regmap;
++	struct tps68470_led leds[TPS68470_NUM_LEDS];
++};
++
++enum ctrlb_current {
++	CTRLB_2MA	= 0,
++	CTRLB_4MA	= 1,
++	CTRLB_8MA	= 2,
++	CTRLB_16MA	= 3,
++};
++
++static int tps68470_brightness_set(struct led_classdev *led_cdev, enum led_brightness brightness)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENA,
++					  brightness ? TPS68470_ILEDCTL_ENA : 0);
++	case TPS68470_ILED_B:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENB,
++					  brightness ? TPS68470_ILEDCTL_ENB : 0);
++	}
++	return -EINVAL;
++}
++
++static enum led_brightness tps68470_brightness_get(struct led_classdev *led_cdev)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++	int ret = 0;
++	int value = 0;
++
++	ret =  regmap_read(regmap, TPS68470_REG_ILEDCTL, &value);
++	if (ret)
++		return dev_err_probe(led_cdev->dev, -EINVAL, "failed on reading register\n");
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		value = value & TPS68470_ILEDCTL_ENA;
++		break;
++	case TPS68470_ILED_B:
++		value = value & TPS68470_ILEDCTL_ENB;
++		break;
++	}
++
++	return value ? LED_ON : LED_OFF;
++}
++
++
++static int tps68470_ledb_current_init(struct platform_device *pdev,
++				      struct tps68470_device *tps68470)
++{
++	int ret = 0;
++	unsigned int curr;
++
++	/* configure LEDB current if the properties can be got */
++	if (!device_property_read_u32(&pdev->dev, "ti,ledb-current", &curr)) {
++		if (curr > CTRLB_16MA) {
++			dev_err(&pdev->dev,
++				"Invalid LEDB current value: %d\n",
++				curr);
++			return -EINVAL;
++		}
++		ret = regmap_update_bits(tps68470->regmap, TPS68470_REG_ILEDCTL,
++					 TPS68470_ILEDCTL_CTRLB, curr);
++	}
++	return ret;
++}
++
++static int tps68470_leds_probe(struct platform_device *pdev)
++{
++	int i = 0;
++	int ret = 0;
++	struct tps68470_device *tps68470;
++	struct tps68470_led *led;
++	struct led_classdev *lcdev;
++
++	tps68470 = devm_kzalloc(&pdev->dev, sizeof(struct tps68470_device),
++				GFP_KERNEL);
++	if (!tps68470)
++		return -ENOMEM;
++
++	tps68470->dev = &pdev->dev;
++	tps68470->regmap = dev_get_drvdata(pdev->dev.parent);
++
++	for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++		led = &tps68470->leds[i];
++		lcdev = &led->lcdev;
++
++		led->led_id = i;
++
++		lcdev->name = devm_kasprintf(tps68470->dev, GFP_KERNEL, "%s::%s",
++					     tps68470_led_names[i], LED_FUNCTION_INDICATOR);
++		if (!lcdev->name)
++			return -ENOMEM;
++
++		lcdev->max_brightness = 1;
++		lcdev->brightness = 0;
++		lcdev->brightness_set_blocking = tps68470_brightness_set;
++		lcdev->brightness_get = tps68470_brightness_get;
++		lcdev->dev = &pdev->dev;
++
++		ret = devm_led_classdev_register(tps68470->dev, lcdev);
++		if (ret) {
++			dev_err_probe(tps68470->dev, ret,
++				      "error registering led\n");
++			goto err_exit;
++		}
++
++		if (i == TPS68470_ILED_B) {
++			ret = tps68470_ledb_current_init(pdev, tps68470);
++			if (ret)
++				goto err_exit;
++		}
++	}
++
++err_exit:
++	if (ret) {
++		for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++			if (tps68470->leds[i].lcdev.name)
++				devm_led_classdev_unregister(&pdev->dev,
++							     &tps68470->leds[i].lcdev);
++		}
++	}
++
++	return ret;
++}
++static struct platform_driver tps68470_led_driver = {
++	.driver = {
++		   .name = "tps68470-led",
++	},
++	.probe = tps68470_leds_probe,
++};
++
++module_platform_driver(tps68470_led_driver);
++
++MODULE_ALIAS("platform:tps68470-led");
++MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
++MODULE_LICENSE("GPL v2");
+-- 
+2.43.0
+
+From c00f7cef49b1667c840a78d43a07bb6cc85f5231 Mon Sep 17 00:00:00 2001
+From: mojyack <mojyack@gmail.com>
+Date: Tue, 26 Mar 2024 05:55:44 +0900
+Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
+
+On surface go 2, sometimes probing dw9719 fails with "dw9719: probe of i2c-INT347A:00-VCM failed with error -121".
+The -121(-EREMOTEIO) is came from drivers/i2c/busses/i2c-designware-common.c:575, and indicates the initialize occurs too early.
+So just add some delay.
+There is no exact reason for this 10000us, but 100us failed.
+
+Patchset: cameras
+---
+ drivers/media/i2c/dw9719.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+index 3b7ba88fd..440888507 100644
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -121,6 +121,9 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
+ 	if (ret)
+ 		return ret;
+ 
++	/* Wait for device to be acknowledged */
++	fsleep(10000);
++
+ 	/*
+ 	 * Need 100us to transition from SHUTDOWN to STANDBY.
+ 	 * Jiggle the SCL pin to wake up the device (even when the regulator is
+-- 
+2.43.0
+
+From 75c195f604f835f1e0580a2f4aaf119db1cbf497 Mon Sep 17 00:00:00 2001
+From: Tooraj Taraz <tooraj.taraz@yahoo.com>
+Date: Wed, 31 Dec 2025 00:35:50 +0100
+Subject: [PATCH] Add camera support for Surface Pro 9
+
+Experimental camera support for the Surface Pro 9.
+
+Link: https://github.com/linux-surface/linux-surface/pull/1867
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c                   | 158 +++++++++++++++++-
+ drivers/media/i2c/ov5693.c                    |   1 +
+ drivers/media/pci/intel/ipu-bridge.c          |   4 +
+ drivers/platform/x86/intel/int3472/discrete.c |  16 ++
+ 4 files changed, 177 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 09d58e8b1..015493a16 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -2,6 +2,7 @@
+ // Copyright (c) 2017 Intel Corporation.
+ 
+ #include <linux/acpi.h>
++#include <linux/delay.h>
+ #include <linux/clk.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+@@ -119,6 +120,14 @@ struct ov13858_mode {
+ 	struct ov13858_reg_list reg_list;
+ };
+ 
++// Or use standard names that might be more correct:
++static const char * const ov13858_supply_names[] = {
++	"avdd",    // Analog voltage
++	"pwr1",    // Digital core voltage
++};
++
++#define OV13858_NUM_SUPPLIES ARRAY_SIZE(ov13858_supply_names)
++
+ /* 4224x3136 needs 1080Mbps/lane, 4 lanes */
+ static const struct ov13858_reg mipi_data_rate_1080mbps[] = {
+ 	/* PLL1 registers */
+@@ -1046,12 +1055,126 @@ struct ov13858 {
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+ 
++	struct regulator_bulk_data supplies[OV13858_NUM_SUPPLIES];
++	struct gpio_desc *reset;
++	struct clk *xvclk;
++
+ 	/* Mutex for serialized access */
+ 	struct mutex mutex;
+ };
+ 
+ #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
+ 
++
++static int ov13858_get_regulators(struct ov13858 *ov13858)
++{
++	unsigned int i;
++
++	for (i = 0; i < OV13858_NUM_SUPPLIES; i++)
++		ov13858->supplies[i].supply = ov13858_supply_names[i];
++
++	return devm_regulator_bulk_get(ov13858->dev, OV13858_NUM_SUPPLIES,
++				       ov13858->supplies);
++}
++
++static int ov13858_sensor_powerup(struct ov13858 *ov13858)
++{
++	int ret;
++
++	dev_info(ov13858->dev, "Powering up sensor\n");
++
++	/* Assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Enable clock FIRST - sensor needs clock to communicate */
++	ret = clk_prepare_enable(ov13858->xvclk);
++	if (ret) {
++		dev_err(ov13858->dev, "Failed to enable clock: %d\n", ret);
++		return ret;
++	}
++	dev_info(ov13858->dev, "Clock enabled\n");
++
++	/* Enable regulators */
++	ret = regulator_bulk_enable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	if (ret) {
++		dev_err(ov13858->dev, "Failed to enable regulators: %d\n", ret);
++		clk_disable_unprepare(ov13858->xvclk);
++		return ret;
++	}
++
++	dev_info(ov13858->dev, "Regulators enabled\n");
++
++	/* Wait for power to stabilize */
++	usleep_range(5000, 10000);
++
++	/* De-assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 0);
++
++	/* Wait for sensor to boot */
++	msleep(20);
++
++	dev_info(ov13858->dev, "Reset de-asserted, sensor should be ready\n");
++
++	return 0;
++}
++
++static void ov13858_sensor_powerdown(struct ov13858 *ov13858)
++{
++	dev_info(ov13858->dev, "Powering down sensor\n");
++
++	/* Assert reset to put sensor in reset state */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Disable regulators */
++	regulator_bulk_disable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	dev_info(ov13858->dev, "Regulators disabled\n");
++
++	/* Disable clock */
++	clk_disable_unprepare(ov13858->xvclk);
++	dev_info(ov13858->dev, "Clock disabled\n");
++}
++
++static int __maybe_unused ov13858_suspend(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++
++	ov13858_sensor_powerdown(ov13858);
++
++	return 0;
++}
++
++static int __maybe_unused ov13858_resume(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++	int ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static const struct dev_pm_ops ov13858_pm_ops = {
++	SET_RUNTIME_PM_OPS(ov13858_suspend, ov13858_resume, NULL)
++};
++
++static int ov13858_get_gpios(struct ov13858 *ov13858)
++{
++	ov13858->reset = devm_gpiod_get_optional(ov13858->dev, "reset",
++	                                         GPIOD_OUT_HIGH);
++	if (IS_ERR(ov13858->reset)) {
++		dev_err(ov13858->dev, "Error fetching reset GPIO\n");
++		return PTR_ERR(ov13858->reset);
++	}
++
++	return 0;
++}
++
+ /* Read registers up to 4 at a time */
+ static int ov13858_read_reg(struct ov13858 *ov13858, u16 reg, u32 len,
+ 			    u32 *val)
+@@ -1498,8 +1621,11 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 	int ret;
+ 	u32 val;
+ 
++	dev_info(ov13858->dev, "Attempting to read chip ID from register 0x300a\n");
+ 	ret = ov13858_read_reg(ov13858, OV13858_REG_CHIP_ID,
+ 			       OV13858_REG_VALUE_24BIT, &val);
++	dev_info(ov13858->dev, "Chip ID read result: ret=%d, val=0x%06x (expected 0x%06x)\n",
++	         ret, val, OV13858_CHIP_ID);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1509,6 +1635,7 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 		return -EIO;
+ 	}
+ 
++	dev_info(ov13858->dev, "Chip ID verified successfully!\n");
+ 	return 0;
+ }
+ 
+@@ -1678,14 +1805,33 @@ static int ov13858_probe(struct i2c_client *client)
+ 				     "external clock %lu is not supported\n",
+ 				     freq);
+ 
++	/* Get the external clock */
++	ov13858->xvclk = devm_clk_get_optional(ov13858->dev, "xvclk");
++	if (IS_ERR(ov13858->xvclk))
++		return dev_err_probe(ov13858->dev, PTR_ERR(ov13858->xvclk),
++		       "failed to get xvclk\n");
++
+ 	/* Initialize subdev */
+ 	v4l2_i2c_subdev_init(&ov13858->sd, client, &ov13858_subdev_ops);
+ 
++	ret = ov13858_get_regulators(ov13858);
++	if (ret)
++		return dev_err_probe(ov13858->dev, ret,
++		       "Error fetching regulators\n");
++
++	ret = ov13858_get_gpios(ov13858);
++	if (ret)
++		return ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;  // No cleanup needed yet, devm handles GPIOs/regulators
++
+ 	/* Check module identity */
+ 	ret = ov13858_identify_module(ov13858);
+ 	if (ret) {
+ 		dev_err(ov13858->dev, "failed to find sensor: %d\n", ret);
+-		return ret;
++		goto error_power_off;  // Now we need to power down
+ 	}
+ 
+ 	/* Set default mode to max resolution */
+@@ -1693,7 +1839,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ 	ret = ov13858_init_controls(ov13858);
+ 	if (ret)
+-		return ret;
++		goto error_power_off;
+ 
+ 	/* Initialize subdev */
+ 	ov13858->sd.internal_ops = &ov13858_internal_ops;
+@@ -1729,6 +1875,10 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ error_handler_free:
+ 	ov13858_free_controls(ov13858);
++
++error_power_off:
++	ov13858_sensor_powerdown(ov13858);
++
+ 	dev_err(ov13858->dev, "%s failed:%d\n", __func__, ret);
+ 
+ 	return ret;
+@@ -1744,6 +1894,9 @@ static void ov13858_remove(struct i2c_client *client)
+ 	ov13858_free_controls(ov13858);
+ 
+ 	pm_runtime_disable(ov13858->dev);
++	if (!pm_runtime_status_suspended(ov13858->dev))
++		ov13858_sensor_powerdown(ov13858);
++	pm_runtime_set_suspended(ov13858->dev);
+ }
+ 
+ static const struct i2c_device_id ov13858_id_table[] = {
+@@ -1765,6 +1918,7 @@ MODULE_DEVICE_TABLE(acpi, ov13858_acpi_ids);
+ static struct i2c_driver ov13858_i2c_driver = {
+ 	.driver = {
+ 		.name = "ov13858",
++		.pm = &ov13858_pm_ops,
+ 		.acpi_match_table = ACPI_PTR(ov13858_acpi_ids),
+ 	},
+ 	.probe = ov13858_probe,
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 4cc796bbe..02236f3db 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -1396,6 +1396,7 @@ static const struct dev_pm_ops ov5693_pm_ops = {
+ 
+ static const struct acpi_device_id ov5693_acpi_match[] = {
+ 	{"INT33BE"},
++	{"OVTI5693"},
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(acpi, ov5693_acpi_match);
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index bd64c0400..61d06d319 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -63,6 +63,10 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
+ 	/* Onsemi MT9M114 */
+ 	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
++	/* Omnivision OV5693 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
++	/* Omnivision OV13858 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+ 	/* Omnivision OV2740 */
+ 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
+ 	/* Omnivision OV5670 */
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index 6c729fcfc..8f17a262b 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -276,6 +276,10 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+ 		/* Setups using a handshake pin need 25 ms enable delay */
+ 		*enable_time_us = 25 * USEC_PER_MSEC;
+ 		break;
++	case 0x08:  /* Surface Pro 9 - additional power rail */
++		*con_id = "pwr1";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
+ 	default:
+ 		*con_id = "unknown";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+@@ -384,6 +388,7 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+ 	case INT3472_GPIO_TYPE_DOVDD:
+ 	case INT3472_GPIO_TYPE_HANDSHAKE:
++	case 0x08:  /* Surface Pro 9 power rail */
+ 		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
+ 		if (IS_ERR(gpio)) {
+ 			ret = PTR_ERR(gpio);
+@@ -416,6 +421,17 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 				err_msg = "Failed to register regulator\n";
+ 
+ 			break;
++		case 0x08:  /* Surface Pro 9 - treat as power*/
++		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
++		    dev_info(int3472->dev, "  con_id=%s, flags=0x%lx\n", con_id, gpio_flags);
++		    ret = skl_int3472_register_regulator(int3472, gpio,
++			 GPIO_REGULATOR_ENABLE_TIME,
++			 con_id, NULL);
++		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
++		    if (ret) {
++			dev_err(int3472->dev, "Failed to register type 0x%02x: %d\n", type, ret);
++		    }
++		    break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+ 			break;
+-- 
+2.43.0
+
+From 0b6b96bfac23e0d0f14e52fde0df337cfe1ed7a1 Mon Sep 17 00:00:00 2001
+From: gabrielstedman <gabrielstedman@users.noreply.github.com>
+Date: Fri, 13 Mar 2026 08:52:07 +0000
+Subject: [PATCH] media: ipu-bridge: Add front camera rotation quirks for
+ Surface Pro 8 and 9
+
+On the Surface Pro 8 and 9, camera rotation in `ssdb.degree` is `0` (no
+rotation) but should be `180`. Add these devices to the respective quirk
+list.
+
+Link: https://github.com/linux-surface/kernel/pull/160
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 61d06d319..905f5d63f 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -196,6 +196,20 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "OVTI02E1",
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++		.driver_data = "INT33BE",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTI5693",
++	},
+ 	{} /* Terminating entry */
+ };
+ 
+-- 
+2.43.0
+
+From f91d3057e428ea8e188ad2169257bf8972e625b5 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 19 Oct 2026 00:24:46 +0200
+Subject: [PATCH] media: ipu-bridge: Move Surface rotation quirks to start of
+ DMI table
+
+The Fedora (kernel-ark) tree carries additional upstream DMI entries at
+the end of the upside_down_sensor_dmi_ids table, which causes the patch
+adding our quirks to fail to apply there. Add the Surface entries at the
+start of the table instead, which is less likely to conflict with
+entries added upstream.
+
+Patchset: cameras
+
+(cherry picked from commit 2dfd333c3af7709cd6bf9eaa7513a635479433fe)
+[P-H48: rebased onto v7.3, conflict in drivers/media/pci/intel/ipu-bridge.c resolved by keeping the upstream 7.3 entries (Dell DA16250, Lenovo X9-14/X9-15, Samsung 960QHA) in place and removing only the Surface Pro 8/9 entries from the end of the table; the Surface entries are added at the start as in the original]
+---
+ drivers/media/pci/intel/ipu-bridge.c | 28 ++++++++++++++--------------
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 905f5d63f..903bb00a3 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -114,6 +114,20 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+  * without reporting a rotation of 180° in neither the SSDB nor the _PLD.
+  */
+ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++		.driver_data = "INT33BE",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTI5693",
++	},
+ 	{
+ 		.matches = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+@@ -196,20 +210,6 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "OVTI02E1",
+ 	},
+-	{
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+-			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
+-		},
+-		.driver_data = "INT33BE",
+-	},
+-	{
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+-			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+-		},
+-		.driver_data = "OVTI5693",
+-	},
+ 	{} /* Terminating entry */
+ };
+ 
+-- 
+2.43.0
+
+From 4a137e182bedd1031de5de4286608dc0b71acd83 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:15:22 -0600
+Subject: [PATCH] media: i2c: ov13858: Don't log uninitialised chip ID on read
+ failure
+
+The Surface Pro 9 debug output in ov13858_identify_module() prints the
+chip ID read result before checking whether the read succeeded.
+ov13858_read_reg() does not write the value on its error paths, so a
+failed read logs uninitialised stack contents as the chip ID.
+
+Initialise val to zero so the message shows 0 when the read fails.
+
+This fixes the patch "Add camera support for Surface Pro 9" in the
+cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 015493a16..7081349ae 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -1619,7 +1619,7 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ static int ov13858_identify_module(struct ov13858 *ov13858)
+ {
+ 	int ret;
+-	u32 val;
++	u32 val = 0;
+ 
+ 	dev_info(ov13858->dev, "Attempting to read chip ID from register 0x300a\n");
+ 	ret = ov13858_read_reg(ov13858, OV13858_REG_CHIP_ID,
+-- 
+2.43.0
+
+From c5a9d6e91181f4f5dedba06b48a5548990491227 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 16:16:17 -0600
+Subject: [PATCH] media: v4l2-core: Release privacy LED when registration fails
+
+Acquiring the privacy LED was moved from
+__v4l2_async_register_subdev_sensor() into
+__v4l2_async_register_subdev(), but the matching release on failure was
+left in the sensor wrapper. As a result, sub-devices registered directly
+with v4l2_async_register_subdev() keep the LED reference, and the LED's
+sysfs interface stays disabled, when registration fails.
+
+Release the LED on the error paths of the function that acquires it,
+and drop the release from the sensor wrapper, which would otherwise
+release it a second time. v4l2-fwnode.c no longer uses the private
+privacy LED helpers, so drop its include of v4l2-subdev-priv.h.
+
+This fixes the patch "media: v4l2-core: Acquire privacy led in
+v4l2_async_register_subdev()" in the cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c  | 2 ++
+ drivers/media/v4l2-core/v4l2-fwnode.c | 3 ---
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index d395f7517..958a4343e 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -826,6 +826,7 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 		sd->fwnode = dev_fwnode(sd->dev);
+ 	} else if (fwnode_graph_is_endpoint(sd->fwnode)) {
+ 		dev_warn(sd->dev, "sub-device fwnode is an endpoint!\n");
++		v4l2_subdev_put_privacy_led(sd);
+ 		return -EINVAL;
+ 	}
+ 
+@@ -879,6 +880,7 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 	mutex_unlock(&list_lock);
+ 
+ 	sd->owner = NULL;
++	v4l2_subdev_put_privacy_led(sd);
+ 
+ 	return ret;
+ }
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index 8e9ae4b81..407e350b1 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -28,8 +28,6 @@
+ #include <media/v4l2-fwnode.h>
+ #include <media/v4l2-subdev.h>
+ 
+-#include "v4l2-subdev-priv.h"
+-
+ static const struct v4l2_fwnode_bus_conv {
+ 	enum v4l2_fwnode_bus_type fwnode_bus_type;
+ 	enum v4l2_mbus_type mbus_type;
+@@ -1292,7 +1290,6 @@ int __v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd, struct module *m
+ 	v4l2_async_nf_unregister(notifier);
+ 
+ out_cleanup:
+-	v4l2_subdev_put_privacy_led(sd);
+ 	v4l2_async_nf_cleanup(notifier);
+ 	kfree(notifier);
+ 
+-- 
+2.43.0
+
+From 2b3528f332e4a8cacf25d31280ff823c8a7178a4 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Mon, 12 Oct 2026 17:01:33 -0600
+Subject: [PATCH] media: v4l2-core: Only look up privacy LED for sub-devices
+ with a device
+
+Acquiring the privacy LED was moved from
+__v4l2_async_register_subdev_sensor(), which rejects sub-devices without
+a struct device, into __v4l2_async_register_subdev(), which treats
+sd->dev as optional. The lookup goes through led_get(sd->dev, ...),
+which dereferences the device, so registering a sub-device without one
+would crash.
+
+Only look up the LED when the sub-device has a device. Without one,
+sd->privacy_led stays NULL and the release paths do nothing.
+
+This fixes the patch "media: v4l2-core: Acquire privacy led in
+v4l2_async_register_subdev()" in the cameras patchset.
+
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 958a4343e..938b66ea7 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -810,9 +810,12 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		return ret;
++	/* The LED is looked up through the device, which is optional here */
++	if (sd->dev) {
++		ret = v4l2_subdev_get_privacy_led(sd);
++		if (ret < 0)
++			return ret;
++	}
+ 
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+-- 
+2.43.0
+
+From 4a0ff794691522288bafb2a1a49cda1f8a1a71c1 Mon Sep 17 00:00:00 2001
+From: Sakari Ailus <sakari.ailus@linux.intel.com>
+Date: Mon, 7 Sep 2026 17:30:21 +0300
+Subject: [PATCH] media: ipu-bridge: Add ipu_bridge_get_ipu6()
+
+Add ipu_bridge_get_ipu6() for obtaining the IPU 6 (or soon later) PCI
+device. This isn't technically a job of the IPU bridge, but the
+functionality is required in conjunction with the firmware definitions
+that necessitate the use of the IPU bridge on many systems.
+
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Reviewed-by: Antti Laakso <antti.laakso@linux.intel.com>
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+(cherry picked from commit eda381fd8c0c6f77cc0b3b8d777129eb884a08e0)
+[ backport: taken as a prerequisite of 8e3def7bf410, which uses the IPU6 PCI IDs
+  from <media/ipu6-pci-table.h> that this commit includes ]
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 13 +++++++++++++
+ include/media/ipu-bridge.h           |  2 ++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 903bb00a3..da5687a20 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -15,6 +15,7 @@
+ #include <linux/workqueue.h>
+ 
+ #include <media/ipu-bridge.h>
++#include <media/ipu6-pci-table.h>
+ #include <media/v4l2-fwnode.h>
+ 
+ #define ADEV_DEV(adev) ACPI_PTR(&((adev)->dev))
+@@ -960,6 +961,18 @@ static int ipu_bridge_check_fwnode_graph(struct fwnode_handle *fwnode)
+ 	return ipu_bridge_check_fwnode_graph(fwnode->secondary);
+ }
+ 
++struct pci_dev *ipu_bridge_get_ipu6(void)
++{
++	struct pci_dev *ipu = NULL;
++
++	for (unsigned int i = 0; !ipu && ipu6_pci_tbl[i].vendor; i++)
++		ipu = pci_get_device(ipu6_pci_tbl[i].vendor,
++				     ipu6_pci_tbl[i].device, NULL);
++
++	return ipu;
++}
++EXPORT_SYMBOL_NS_GPL(ipu_bridge_get_ipu6, "INTEL_IPU_BRIDGE");
++
+ static DEFINE_MUTEX(ipu_bridge_mutex);
+ 
+ int ipu_bridge_init(struct device *dev,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index 16fac7654..b46b6693f 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -169,11 +169,13 @@ struct ipu_bridge {
+ };
+ 
+ #if IS_ENABLED(CONFIG_IPU_BRIDGE)
++struct pci_dev *ipu_bridge_get_ipu6(void);
+ int ipu_bridge_init(struct device *dev,
+ 		    ipu_parse_sensor_fwnode_t parse_sensor_fwnode);
+ int ipu_bridge_parse_ssdb(struct acpi_device *adev, struct ipu_sensor *sensor);
+ int ipu_bridge_instantiate_vcm(struct device *sensor);
+ #else
++static inline struct pci_dev *ipu_bridge_get_ipu6(void) { return NULL; }
+ /* Use a define to avoid the @parse_sensor_fwnode argument getting evaluated */
+ #define ipu_bridge_init(dev, parse_sensor_fwnode)	(0)
+ static inline int ipu_bridge_instantiate_vcm(struct device *s) { return 0; }
+-- 
+2.43.0
+
+From 2b8f1f3625d2179862da3dde2d5f437449b3035d Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:18 +0200
+Subject: [PATCH] media: i2c: ov5693: Gate the MIPI clock lane for
+ non-continuous clock
+
+The ov5693 never programs MIPI_CTRL00 (0x4800), leaving it at its 0x00
+power-on default, which lets the MIPI clock run freely. The IPU3 CSI-2
+receiver tolerates this, but the IPU6 receiver (e.g. on Microsoft
+Surface Pro 7+, Pro 8, Pro 9 and Surface Go 4) fails to lock onto the
+link, so the sensor streams but capture times out with "stream stop
+time out". On most affected machines no frames arrive at all; on some
+the failure is intermittent.
+
+Gate the clock lane while idle at stream on when the endpoint requests a
+non-continuous clock.
+
+Only the gate bit is touched, so platforms that do not request it are
+unaffected. No counterpart is needed at stream off, as the link is down
+by then and the register returns to its default when the sensor is
+powered off.
+
+The property is supplied by the ipu-bridge in a subsequent patch.
+
+Link: https://github.com/linux-surface/linux-surface/pull/2171
+Co-developed-by: Arsalan Naeem <naeemarsalan@gmail.com>
+Signed-off-by: Arsalan Naeem <naeemarsalan@gmail.com>
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 0e12587945f66d5b8c72be145b95fc5f109b3a32)
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 02236f3db..cedc6ea03 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -35,6 +35,11 @@
+ #define OV5693_STOP_STREAMING			0x00
+ #define OV5693_SW_RESET				0x01
+ 
++/* MIPI transmitter control */
++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
++/* Gate the clock lane when there is no packet to transmit */
++#define OV5693_MIPI_CTRL00_CLOCK_LANE_GATE	BIT(5)
++
+ #define OV5693_REG_CHIP_ID			CCI_REG16(0x300a)
+ /* Yes, this is right. The datasheet for the OV5693 gives its ID as 0x5690 */
+ #define OV5693_CHIP_ID				0x5690
+@@ -144,6 +149,9 @@ struct ov5693_device {
+ 	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
+ 	struct clk *xvclk;
+ 
++	/* Gate the MIPI clock lane when idle (CSI-2 non-continuous clock) */
++	bool clock_ncont;
++
+ 	struct ov5693_mode {
+ 		struct v4l2_rect crop;
+ 		struct v4l2_mbus_framefmt format;
+@@ -611,6 +619,19 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
+ {
+ 	int ret = 0;
+ 
++	/*
++	 * Gate the MIPI clock lane while idle if the CSI-2 link is configured
++	 * for a non-continuous clock. Only that bit is touched, and only in
++	 * that case, so the register keeps whatever the platform left in it
++	 * and the clock stays free-running as before everywhere else. It
++	 * needs no counterpart at stream off: the link is down by then, and
++	 * the register returns to its default when the sensor is powered off.
++	 */
++	if (enable && ov5693->clock_ncont)
++		cci_update_bits(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
++				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE,
++				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE, &ret);
++
+ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
+ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
+ 		  &ret);
+@@ -1259,6 +1280,9 @@ static int ov5693_check_hwcfg(struct ov5693_device *ov5693)
+ 		goto out_free_bus_cfg;
+ 	}
+ 
++	ov5693->clock_ncont = bus_cfg.bus.mipi_csi2.flags &
++			      V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK;
++
+ out_free_bus_cfg:
+ 	v4l2_fwnode_endpoint_free(&bus_cfg);
+ 
+-- 
+2.43.0
+
+From 781cc4fd07b1561097d73c2ca285e1789b97cdcc Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:19 +0200
+Subject: [PATCH] media: ipu-bridge: Assign endpoint property indices
+ dynamically
+
+Index the ep_properties array dynamically instead of plain numerical
+values as is done in mipi-disco-img.c.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 3436405beac895b589e2ad4a7be3b57e17605057)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 27 ++++++++++++++-------------
+ include/media/ipu-bridge.h           | 19 ++++++++++++++++++-
+ 2 files changed, 32 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index da5687a20..1d33370b2 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -492,6 +492,7 @@ static void ipu_bridge_create_fwnode_properties(
+ {
+ 	struct ipu_property_names *names = &sensor->prop_names;
+ 	struct software_node *nodes = sensor->swnodes;
++	unsigned int i = 0;
+ 
+ 	sensor->prop_names = prop_names;
+ 
+@@ -549,21 +550,21 @@ static void ipu_bridge_create_fwnode_properties(
+ 			PROPERTY_ENTRY_REF_ARRAY("lens-focus", sensor->vcm_ref);
+ 	}
+ 
+-	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
+-					sensor->prop_names.bus_type,
+-					V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
+-	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+-					sensor->prop_names.data_lanes,
+-					bridge->data_lanes, sensor->lanes);
+-	sensor->ep_properties[2] = PROPERTY_ENTRY_REF_ARRAY(
+-					sensor->prop_names.remote_endpoint,
+-					sensor->local_ref);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_BUS_TYPE)] =
++		PROPERTY_ENTRY_U32(names->bus_type,
++				   V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_DATA_LANES)] =
++		PROPERTY_ENTRY_U32_ARRAY_LEN(names->data_lanes,
++					     bridge->data_lanes, sensor->lanes);
++	sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_REMOTE_EP)] =
++		PROPERTY_ENTRY_REF_ARRAY(names->remote_endpoint,
++					 sensor->local_ref);
+ 
+ 	if (cfg->nr_link_freqs > 0)
+-		sensor->ep_properties[3] = PROPERTY_ENTRY_U64_ARRAY_LEN(
+-			sensor->prop_names.link_frequencies,
+-			cfg->link_freqs,
+-			cfg->nr_link_freqs);
++		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_LINK_FREQUENCIES)] =
++			PROPERTY_ENTRY_U64_ARRAY_LEN(names->link_frequencies,
++						     cfg->link_freqs,
++						     cfg->nr_link_freqs);
+ 
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index b46b6693f..e8aeb23dc 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -64,6 +64,23 @@ enum ipu_sensor_swnodes {
+ 	SWNODE_COUNT
+ };
+ 
++enum ipu_bridge_ep_props {
++	IPU_BRIDGE_EP_BUS_TYPE,
++	IPU_BRIDGE_EP_DATA_LANES,
++	IPU_BRIDGE_EP_REMOTE_EP,
++	IPU_BRIDGE_EP_LINK_FREQUENCIES,
++	IPU_BRIDGE_EP_NUM_OF,
++	IPU_BRIDGE_EP_NUM_ENTRIES
++};
++
++/*
++ * Get the index of the next property in a property array, with a given maximum
++ * value.
++ */
++#define IPU_BRIDGE_NEXT_PROPERTY(index, max)		\
++	(WARN_ON((index) > IPU_BRIDGE_##max) ?		\
++	 IPU_BRIDGE_##max : (index)++)
++
+ /* Data representation as it is in ACPI SSDB buffer */
+ struct ipu_sensor_ssdb {
+ 	u8 version;
+@@ -141,7 +158,7 @@ struct ipu_sensor {
+ 	const char *vcm_type;
+ 
+ 	struct ipu_property_names prop_names;
+-	struct property_entry ep_properties[5];
++	struct property_entry ep_properties[IPU_BRIDGE_EP_NUM_ENTRIES];
+ 	struct property_entry dev_properties[5];
+ 	struct property_entry ipu_properties[3];
+ 	struct property_entry ivsc_properties[1];
+-- 
+2.43.0
+
+From 8093b481ec4fac3b60e925e124975da0e6b3dfee Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:20 +0200
+Subject: [PATCH] media: ipu-bridge: Match sensor configs per IPU and add
+ config flags
+
+Some sensors need different treatment depending on which IPU they are
+connected to, so the ACPI HID alone is not enough.
+
+Match on an optional list of IPU PCI product IDs. Entries for one HID
+must be adjacent, IPU-specific ones first, so the generic entry is
+skipped once a specific one has matched.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit b883954d842f57f6f349bbbdf3d4347db3a416dc)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 35 ++++++++++++++++++++++++++++
+ include/media/ipu-bridge.h           | 26 +++++++++++++++++----
+ 2 files changed, 56 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 1d33370b2..1e6889ff5 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -8,6 +8,7 @@
+ #include <linux/dmi.h>
+ #include <linux/i2c.h>
+ #include <linux/mei_cl_bus.h>
++#include <linux/pci.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/property.h>
+@@ -894,8 +895,28 @@ static int ipu_bridge_connect_sensor(const struct ipu_sensor_config *cfg,
+ 	return ret;
+ }
+ 
++/*
++ * Whether a sensor config applies to the IPU this bridge sits on. A config
++ * listing PCI product IDs only applies to those IPUs.
++ */
++static bool ipu_bridge_config_matches(const struct ipu_sensor_config *cfg,
++				      struct ipu_bridge *bridge)
++{
++	const u16 *id;
++
++	if (!cfg->pci_ids)
++		return true;
++
++	for (id = cfg->pci_ids; *id; id++)
++		if (*id == bridge->pci_id)
++			return true;
++
++	return false;
++}
++
+ static int ipu_bridge_connect_sensors(struct ipu_bridge *bridge)
+ {
++	const char *done_hid = NULL;
+ 	unsigned int i;
+ 	int ret;
+ 
+@@ -903,9 +924,22 @@ static int ipu_bridge_connect_sensors(struct ipu_bridge *bridge)
+ 		const struct ipu_sensor_config *cfg =
+ 			&ipu_supported_sensors[i];
+ 
++		/*
++		 * Entries for one HID are adjacent, IPU-specific ones first,
++		 * so the generic entry is skipped once a specific one has
++		 * matched and the sensor is not connected twice.
++		 */
++		if (done_hid && !strcmp(cfg->hid, done_hid))
++			continue;
++
++		if (!ipu_bridge_config_matches(cfg, bridge))
++			continue;
++
+ 		ret = ipu_bridge_connect_sensor(cfg, bridge);
+ 		if (ret)
+ 			goto err_unregister_sensors;
++
++		done_hid = cfg->hid;
+ 	}
+ 
+ 	return 0;
+@@ -1001,6 +1035,7 @@ int ipu_bridge_init(struct device *dev,
+ 		sizeof(bridge->ipu_node_name));
+ 	bridge->ipu_hid_node.name = bridge->ipu_node_name;
+ 	bridge->dev = dev;
++	bridge->pci_id = dev_is_pci(dev) ? to_pci_dev(dev)->device : 0;
+ 	bridge->parse_sensor_fwnode = parse_sensor_fwnode;
+ 
+ 	ret = software_node_register(&bridge->ipu_hid_node);
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index e8aeb23dc..c562db794 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -17,13 +17,24 @@
+ #define IPU_SENSOR_ROTATION_NORMAL		0
+ #define IPU_SENSOR_ROTATION_INVERTED		1
+ 
+-#define IPU_SENSOR_CONFIG(_HID, _NR, ...)	\
+-	(const struct ipu_sensor_config) {	\
+-		.hid = _HID,			\
+-		.nr_link_freqs = _NR,		\
+-		.link_freqs = { __VA_ARGS__ }	\
++/*
++ * Sensor config specific to one or more IPUs, identified by their PCI product
++ * IDs, with flags describing what the sensor needs there. Entries for one HID
++ * must be adjacent in ipu_supported_sensors[], with the IPU-specific ones
++ * before the generic one.
++ */
++#define IPU_SENSOR_CONFIG_MATCH_FL(_HID, _IDS, _FLAGS, _NR, ...)	\
++	(const struct ipu_sensor_config) {				\
++		.hid = _HID,						\
++		.pci_ids = _IDS,					\
++		.flags = _FLAGS,					\
++		.nr_link_freqs = _NR,					\
++		.link_freqs = { __VA_ARGS__ }				\
+ 	}
+ 
++#define IPU_SENSOR_CONFIG(_HID, _NR, ...)				\
++	IPU_SENSOR_CONFIG_MATCH_FL(_HID, NULL, 0, _NR, __VA_ARGS__)
++
+ #define NODE_SENSOR(_HID, _PROPS)		\
+ 	(const struct software_node) {		\
+ 		.name = _HID,			\
+@@ -132,6 +143,9 @@ struct ipu_node_names {
+ 
+ struct ipu_sensor_config {
+ 	const char *hid;
++	/* Zero-terminated list of IPU PCI product IDs, NULL for any IPU */
++	const u16 *pci_ids;
++	const u32 flags;
+ 	const u8 nr_link_freqs;
+ 	const u64 link_freqs[MAX_NUM_LINK_FREQS];
+ };
+@@ -177,6 +191,8 @@ typedef int (*ipu_parse_sensor_fwnode_t)(struct acpi_device *adev,
+ 
+ struct ipu_bridge {
+ 	struct device *dev;
++	/* PCI product ID of the IPU, 0 if it is not a PCI device */
++	u16 pci_id;
+ 	ipu_parse_sensor_fwnode_t parse_sensor_fwnode;
+ 	char ipu_node_name[ACPI_ID_LEN];
+ 	struct software_node ipu_hid_node;
+-- 
+2.43.0
+
+From 240ea5a69bd54279657220fd0936a419c4b83170 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Wed, 2 Sep 2026 16:23:21 +0200
+Subject: [PATCH] media: ipu-bridge: Request non-continuous clock for ov5693 on
+ IPU6
+
+The ov5693 (INT33BE / OVTI5693) needs its MIPI clock lane gated while
+idle for the IPU6 CSI-2 receiver to lock onto the link, which the sensor
+driver does when the endpoint requests a non-continuous clock.
+
+The same sensor works with a free-running clock on the IPU3, so request
+it only for the IPU6 variants where it has been confirmed on hardware:
+Tiger Lake, Alder Lake-P and Alder Lake-N.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Tested-by: Jakob Berg Jespersen <dev@berg.pm> # Surface Pro 7+, IPU6 Tiger Lake
+Tested-by: Fil Dunsky <filipp.dunsky@gmail.com> # Surface Pro 8, IPU6 Tiger Lake (8086:9a19)
+Tested-by: Lucas Lis <lucaseze.lis@gmail.com> # Surface Pro 7+, IPU6 Tiger Lake (0x9a19)
+Tested-by: Kengo Oki <dev.kengo.fugu0141@gmail.com> # Surface Go 4, IPU6 Alder Lake-N 8086:462e
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 8e3def7bf4102c5b32b597b2f6ea1419174fc480)
+[ backport: linux-surface's "Add camera support for Surface Pro 9" lists OVTI5693
+  right after INT33BE rather than in sorted order, so the new OVTI5693 entry goes
+  just before that one instead of at the sorted position; no other change ]
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 18 ++++++++++++++++++
+ include/media/ipu-bridge.h           |  5 +++++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 1e6889ff5..b7b699519 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -50,6 +50,14 @@
+  *
+  * Please keep the list sorted by ACPI HID.
+  */
++/* IPU6 variants whose CSI-2 receiver needs the ov5693 clock lane gated */
++static const u16 ipu6_ov5693_ncont_clk[] = {
++	PCI_DEVICE_ID_INTEL_IPU6,		/* Tiger Lake */
++	PCI_DEVICE_ID_INTEL_IPU6EP_ADLP,	/* Alder Lake-P */
++	PCI_DEVICE_ID_INTEL_IPU6EP_ADLN,	/* Alder Lake-N */
++	0
++};
++
+ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	/* Himax HM1092 */
+ 	IPU_SENSOR_CONFIG("HIMX1092", 2, 180000000, 180480000),
+@@ -62,10 +70,16 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	/* GalaxyCore GC0310 */
+ 	IPU_SENSOR_CONFIG("INT0310", 1, 55692000),
+ 	/* Omnivision OV5693 */
++	IPU_SENSOR_CONFIG_MATCH_FL("INT33BE", ipu6_ov5693_ncont_clk,
++				   IPU_BR_FL_CSI2_CLK_NONCONTINUOUS,
++				   1, 419200000),
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
+ 	/* Onsemi MT9M114 */
+ 	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
+ 	/* Omnivision OV5693 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG_MATCH_FL("OVTI5693", ipu6_ov5693_ncont_clk,
++				   IPU_BR_FL_CSI2_CLK_NONCONTINUOUS,
++				   1, 419200000),
+ 	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
+ 	/* Omnivision OV13858 - Surface Pro 9 */
+ 	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+@@ -567,6 +581,10 @@ static void ipu_bridge_create_fwnode_properties(
+ 						     cfg->link_freqs,
+ 						     cfg->nr_link_freqs);
+ 
++	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
++		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
++			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
++
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+ 					bridge->data_lanes, sensor->lanes);
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index c562db794..760f0767c 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -17,6 +17,10 @@
+ #define IPU_SENSOR_ROTATION_NORMAL		0
+ #define IPU_SENSOR_ROTATION_INVERTED		1
+ 
++/* Flags for struct ipu_sensor_config */
++/* The sensor's CSI-2 transmitter needs a non-continuous clock */
++#define IPU_BR_FL_CSI2_CLK_NONCONTINUOUS	BIT(0)
++
+ /*
+  * Sensor config specific to one or more IPUs, identified by their PCI product
+  * IDs, with flags describing what the sensor needs there. Entries for one HID
+@@ -80,6 +84,7 @@ enum ipu_bridge_ep_props {
+ 	IPU_BRIDGE_EP_DATA_LANES,
+ 	IPU_BRIDGE_EP_REMOTE_EP,
+ 	IPU_BRIDGE_EP_LINK_FREQUENCIES,
++	IPU_BRIDGE_EP_CLOCK_NONCONTINUOUS,
+ 	IPU_BRIDGE_EP_NUM_OF,
+ 	IPU_BRIDGE_EP_NUM_ENTRIES
+ };
+-- 
+2.43.0
+
+From 05afd521014bee4d24c9e479d6abf9f17bd8e417 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Sun, 13 Sep 2026 20:38:40 +0100
+Subject: [PATCH] media: ipu-bridge: Keep the clock-noncontinuous property name
+ out of rodata
+
+The software nodes ipu-bridge registers on a successful init are never
+unregistered. There is no module_exit and no remove hook, and every
+software_node_unregister_node_group() call sits on an error unwind label
+inside ipu_bridge_init(), so on success the nodes stay registered and
+readable after the module is unloaded, which a later rebind relies on.
+
+Nothing reachable from a registered node may therefore point into the
+module image. PROPERTY_ENTRY_BOOL() stores a pointer to its name, so the
+"clock-noncontinuous" string literal leaves the surviving node carrying a
+dangling property name once ipu-bridge is gone.
+
+Add the name to struct ipu_property_names, which is copied by value into
+each struct ipu_sensor, and use that copy, as every other endpoint
+property name already does.
+
+Fixes: 8e3def7bf410 ("media: ipu-bridge: Request non-continuous clock for ov5693 on IPU6")
+Reported-by: D. Manresa <dmanresa@gmail.com>
+Closes: https://lore.kernel.org/linux-media/20260905211307.542810-1-dmanresa@gmail.com/
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit a20c843c9bc40ab8703a2b17fcbc69532baca692)
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 3 ++-
+ include/media/ipu-bridge.h           | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index b7b699519..57f3d73de 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -237,6 +237,7 @@ static const struct ipu_property_names prop_names = {
+ 	.data_lanes = "data-lanes",
+ 	.remote_endpoint = "remote-endpoint",
+ 	.link_frequencies = "link-frequencies",
++	.clock_noncontinuous = "clock-noncontinuous",
+ };
+ 
+ static const char * const ipu_vcm_types[] = {
+@@ -583,7 +584,7 @@ static void ipu_bridge_create_fwnode_properties(
+ 
+ 	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
+ 		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
+-			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
++			PROPERTY_ENTRY_BOOL(names->clock_noncontinuous);
+ 
+ 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+diff --git a/include/media/ipu-bridge.h b/include/media/ipu-bridge.h
+index 760f0767c..3ef94c2b7 100644
+--- a/include/media/ipu-bridge.h
++++ b/include/media/ipu-bridge.h
+@@ -135,6 +135,7 @@ struct ipu_property_names {
+ 	char data_lanes[11];
+ 	char remote_endpoint[16];
+ 	char link_frequencies[17];
++	char clock_noncontinuous[20];
+ };
+ 
+ struct ipu_node_names {
+-- 
+2.43.0
+
+From 205e5424893ef7081ce8db0f84261c3def991316 Mon Sep 17 00:00:00 2001
+From: Sergey Lebedev <lsa.uz@pm.me>
+Date: Wed, 30 Sep 2026 07:33:12 +0000
+Subject: [PATCH] media: i2c: ov13858: add horizontal and vertical flip
+ controls
+
+The Microsoft Surface Pro 11 for Business (Intel) mounts this sensor
+upside down, as commit b238116ccd4b ("media: ipu-bridge: Add upside-down
+quirk for Surface Pro 11") records, and the driver has no flip controls
+to compensate.
+
+Add V4L2_CID_HFLIP and V4L2_CID_VFLIP on bits 3 and 4 of register 0x3820.
+The mirror bit is active low, as in Intel's out-of-tree ov13858 driver.
+The Bayer order does not change with either flip, so the controls do not
+set V4L2_CTRL_FLAG_MODIFY_LAYOUT. They are clustered, and grabbed while
+streaming.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Sergey Lebedev <lsa.uz@pm.me>
+Tested-by: German Pablo Lindo <germanpapulindez@gmail.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit deb515fcc369f16ffe099a8b3b940785180dfc48)
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c | 50 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 50 insertions(+)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 7081349ae..d89e403d5 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -77,6 +77,12 @@
+ #define OV13858_DGTL_GAIN_DEFAULT	1024	/* Default gain = 1 X */
+ #define OV13858_DGTL_GAIN_STEP		1	/* Each step = 1/1024 */
+ 
++/* Readout direction */
++#define OV13858_REG_FORMAT1		0x3820
++#define OV13858_FORMAT1_VFLIP		BIT(4)
++/* Horizontal flip, active low: every mode table sets this bit */
++#define OV13858_FORMAT1_HFLIP_N		BIT(3)
++
+ /* Test Pattern Control */
+ #define OV13858_REG_TEST_PATTERN	0x4503
+ #define OV13858_TEST_PATTERN_ENABLE	BIT(7)
+@@ -1051,6 +1057,8 @@ struct ov13858 {
+ 	struct v4l2_ctrl *vblank;
+ 	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *hflip;
++	struct v4l2_ctrl *vflip;
+ 
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+@@ -1331,6 +1339,31 @@ static int ov13858_enable_test_pattern(struct ov13858 *ov13858, u32 pattern)
+ 				 OV13858_REG_VALUE_08BIT, val);
+ }
+ 
++static int ov13858_update_flips(struct ov13858 *ov13858)
++{
++	u32 val;
++	int ret;
++
++	ret = ov13858_read_reg(ov13858, OV13858_REG_FORMAT1,
++			       OV13858_REG_VALUE_08BIT, &val);
++	if (ret)
++		return ret;
++
++	if (ov13858->vflip->val)
++		val |= OV13858_FORMAT1_VFLIP;
++	else
++		val &= ~OV13858_FORMAT1_VFLIP;
++
++	/* The mirror bit is active low, as it is on ov13b10. */
++	if (ov13858->hflip->val)
++		val &= ~OV13858_FORMAT1_HFLIP_N;
++	else
++		val |= OV13858_FORMAT1_HFLIP_N;
++
++	return ov13858_write_reg(ov13858, OV13858_REG_FORMAT1,
++				 OV13858_REG_VALUE_08BIT, val);
++}
++
+ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ {
+ 	struct ov13858 *ov13858 = container_of(ctrl->handler,
+@@ -1377,6 +1410,10 @@ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ 					ov13858->cur_mode->height
+ 					  + ctrl->val);
+ 		break;
++	case V4L2_CID_HFLIP:
++	case V4L2_CID_VFLIP:
++		ret = ov13858_update_flips(ov13858);
++		break;
+ 	case V4L2_CID_TEST_PATTERN:
+ 		ret = ov13858_enable_test_pattern(ov13858, ctrl->val);
+ 		break;
+@@ -1603,6 +1640,13 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ 		pm_runtime_put(ov13858->dev);
+ 	}
+ 
++	/*
++	 * Do not let the flips change while streaming. ov13858->mutex is the
++	 * control handler's own lock and is held here, hence the __ form.
++	 */
++	__v4l2_ctrl_grab(ov13858->hflip, enable);
++	__v4l2_ctrl_grab(ov13858->vflip, enable);
++
+ 	mutex_unlock(&ov13858->mutex);
+ 
+ 	return ret;
+@@ -1745,6 +1789,12 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 			  OV13858_DGTL_GAIN_MIN, OV13858_DGTL_GAIN_MAX,
+ 			  OV13858_DGTL_GAIN_STEP, OV13858_DGTL_GAIN_DEFAULT);
+ 
++	ov13858->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
++					   V4L2_CID_HFLIP, 0, 1, 1, 0);
++	ov13858->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
++					   V4L2_CID_VFLIP, 0, 1, 1, 0);
++	v4l2_ctrl_cluster(2, &ov13858->hflip);
++
+ 	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &ov13858_ctrl_ops,
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(ov13858_test_pattern_menu) - 1,
+-- 
+2.43.0
+
+From 7ae5306b703e947cd46951d968344950cd936391 Mon Sep 17 00:00:00 2001
+From: Fernando Rimoli <fernandorimoli11@gmail.com>
+Date: Tue, 15 Sep 2026 01:01:40 +0100
+Subject: [PATCH] media: ipu-bridge: Add upside-down sensor quirks for the
+ Surface Pro 9
+
+The Microsoft Surface Pro 9 mounts both its front sensor (OVTI5693) and
+its rear one (OVTID858) rotated 180 degrees, and its SSDB reports 0 for
+each, so frames from either arrive inverted with nothing to say so.
+
+Add both to upside_down_sensor_dmi_ids. The two entries carry identical
+DMI matches and differ only in the ACPI HID they gate on, which works
+because ipu_bridge_parse_rotation() walks every matching DMI entry rather
+than stopping at the first one.
+
+Measured on a Surface Pro 9, DMI product SKU Surface_Pro_9_2038, IPU6
+Alder Lake-P 8086:465d, where the inversion of both sensors was confirmed
+visually. Matched on DMI_PRODUCT_NAME as the rest of the table is, rather
+than on the narrower SKU: the entries only take effect when the ACPI HID
+matches too, so a variant of the same model that shipped different
+sensors is left alone.
+
+This makes the kernel report the mounting truthfully and does no more
+than that. Nothing in the bridge rotates pixels, so an application that
+reads the property can turn the image the right way up while one that
+ignores it still shows it inverted.
+
+Signed-off-by: Fernando Rimoli <fernandorimoli11@gmail.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit db44b1792898143888652ea1b54348315eedab4e)
+[Backport: context only. 7.3 ends the table with the Samsung 960QHA entry, so the
+ two entries go after it, before the terminator.]
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 57f3d73de..b847e7ae4 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -226,6 +226,22 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "OVTI02E1",
+ 	},
++	{
++		/* Microsoft Surface Pro 9, front sensor */
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTI5693",
++	},
++	{
++		/* Microsoft Surface Pro 9, rear sensor */
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTID858",
++	},
+ 	{} /* Terminating entry */
+ };
+ 
+-- 
+2.43.0
+
+From 6b91e5eed6bcb6b291af583b981f4394da20ab48 Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Sat, 24 Oct 2026 16:36:34 +0000
+Subject: [PATCH] media: ipu-bridge: Drop the Surface Pro 9 front camera quirk
+ superseded upstream
+
+"media: ipu-bridge: Add front camera rotation quirks for Surface Pro 8
+and 9" adds an upside-down entry for the Surface Pro 9 front sensor
+(OVTI5693). The upstream commit db44b1792898 ("media: ipu-bridge: Add
+upside-down sensor quirks for the Surface Pro 9"), backported earlier in
+this series, adds entries for both the front (OVTI5693) and the rear
+(OVTID858) sensor of the same model.
+
+Drop the older front entry, so that each sensor is listed once and the
+Surface Pro 9 entries are exactly the ones in mainline from 7.4 on. The
+Surface Pro 8 entry is not upstream, and stays.
+
+The upstream entries match the vendor with DMI_EXACT_MATCH where the
+dropped one used DMI_MATCH, so a unit whose sys_vendor carries a leading
+space (linux-surface issue #2257) no longer gets its front camera
+flipped. The Surface Pro 9 this series is built for reports
+"Microsoft Corporation" exactly.
+
+Link: https://github.com/linux-surface/linux-surface/issues/2257
+Signed-off-by: Chris Simpson <chris@nilk.net>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index b847e7ae4..a9382b905 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -137,13 +137,6 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "INT33BE",
+ 	},
+-	{
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+-			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+-		},
+-		.driver_data = "OVTI5693",
+-	},
+ 	{
+ 		.matches = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+-- 
+2.43.0
+

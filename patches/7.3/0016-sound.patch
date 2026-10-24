@@ -1,0 +1,119 @@
+From b0eb61f5d42e92faa881997bb792a4fa525d4bbf Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Sat, 17 Oct 2026 07:25:21 +0000
+Subject: [PATCH] ALSA: hda/realtek: Limit internal mic gain on Microsoft
+ Surface Pro 9
+
+The Surface Pro 9 internal mic (ALC274, pin 0x12) has a Mic Boost of
+up to +30 dB on top of a Capture volume of up to +30 dB.  User space
+that has no saved level for the source starts both at the maximum,
++60 dB, where 37% of the samples clip.  Measured on the device, the
+mic is clean at +18 dB, while +30 dB with no boost already reaches
+0 dBFS on normal room audio.
+
+Remove the Mic Boost control and limit every ADC to +18 dB, so that
+the default 100% source volume is a usable level.
+
+The PCI SSID (8086:7270) and codec SSID (10ec:1284) are Intel and
+Realtek defaults, so other machines report them too.  Keep the entry
+out of the main table, and pick it from a table of its own, by codec
+SSID, only when the main table had no match and the DMI vendor and
+product name match.  Every other machine picks its fixups as before.
+
+Assisted-by: LLM
+---
+ sound/hda/codecs/realtek/alc269.c | 50 +++++++++++++++++++++++++++++++
+ 1 file changed, 50 insertions(+)
+
+diff --git a/sound/hda/codecs/realtek/alc269.c b/sound/hda/codecs/realtek/alc269.c
+index 1623cf926..5737bb44f 100644
+--- a/sound/hda/codecs/realtek/alc269.c
++++ b/sound/hda/codecs/realtek/alc269.c
+@@ -4010,6 +4010,40 @@ static void alc288_fixup_surface_swap_dacs(struct hda_codec *codec,
+ 	spec->gen.preferred_dacs = preferred_pairs;
+ }
+ 
++/*
++ * The Surface Pro 9 internal mic clips badly when the Capture and Mic Boost
++ * volumes are both at max (+60 dB), which is where an unconfigured user space
++ * starts them.  Remove the boost and limit every ADC to +18 dB.
++ */
++static void alc274_fixup_surface_pro9_mic(struct hda_codec *codec,
++					  const struct hda_fixup *fix, int action)
++{
++	unsigned int caps, nsteps, ofs, step, max_step;
++	hda_nid_t nid;
++
++	if (action != HDA_FIXUP_ACT_PRE_PROBE)
++		return;
++
++	snd_hda_override_amp_caps(codec, 0x12, HDA_INPUT, 0);
++
++	for_each_hda_codec_node(nid, codec) {
++		if (get_wcaps_type(get_wcaps(codec, nid)) != AC_WID_AUD_IN ||
++		    !(get_wcaps(codec, nid) & AC_WCAP_IN_AMP))
++			continue;
++		caps = query_amp_caps(codec, nid, HDA_INPUT);
++		nsteps = (caps & AC_AMPCAP_NUM_STEPS) >> AC_AMPCAP_NUM_STEPS_SHIFT;
++		ofs = (caps & AC_AMPCAP_OFFSET) >> AC_AMPCAP_OFFSET_SHIFT;
++		step = (caps & AC_AMPCAP_STEP_SIZE) >> AC_AMPCAP_STEP_SIZE_SHIFT;
++		/* the step size is in 0.25 dB units, minus one */
++		max_step = ofs + 18 * 4 / (step + 1);
++		if (nsteps <= max_step)
++			continue;
++		caps &= ~AC_AMPCAP_NUM_STEPS;
++		caps |= max_step << AC_AMPCAP_NUM_STEPS_SHIFT;
++		snd_hda_override_amp_caps(codec, nid, HDA_INPUT, caps);
++	}
++}
++
+ static void alc274_fixup_hp_89e9_amp(struct hda_codec *codec,
+ 				     const struct hda_fixup *fix, int action)
+ {
+@@ -4388,6 +4422,7 @@ enum {
+ 	ALC285_LENOVO_DAC_RENAME,
+ 	ALC287_FIXUP_YOGA9_SPEAKER2_TO_DAC1,
+ 	ALC256_FIXUP_IPASON_SMARTBOOK_S1,
++	ALC274_FIXUP_SURFACE_PRO9_MIC,
+ };
+ 
+ /* A special fixup for Lenovo C940 and Yoga Duet 7;
+@@ -7174,6 +7209,10 @@ static const struct hda_fixup alc269_fixups[] = {
+ 			{ }
+ 		},
+ 	},
++	[ALC274_FIXUP_SURFACE_PRO9_MIC] = {
++		.type = HDA_FIXUP_FUNC,
++		.v.func = alc274_fixup_surface_pro9_mic,
++	},
+ };
+ 
+ static const struct hda_quirk alc269_fixup_tbl[] = {
+@@ -8500,6 +8539,12 @@ static const struct hda_quirk alc269_fixup_vendor_tbl[] = {
+ 	{}
+ };
+ 
++/* Picked only on the Surface Pro 9, by DMI: its SSIDs are Intel and Realtek defaults */
++static const struct hda_quirk alc269_surface_pro9_tbl[] = {
++	HDA_CODEC_QUIRK(0x10ec, 0x1284, "Microsoft Surface Pro 9", ALC274_FIXUP_SURFACE_PRO9_MIC),
++	{}
++};
++
+ static const struct hda_model_fixup alc269_fixup_models[] = {
+ 	{.id = ALC269_FIXUP_AMIC, .name = "laptop-amic"},
+ 	{.id = ALC269_FIXUP_DMIC, .name = "laptop-dmic"},
+@@ -9328,6 +9373,11 @@ static int alc269_probe(struct hda_codec *codec, const struct hda_device_id *id)
+ 		codec->fixup_id = HDA_FIXUP_ID_NOT_SET;
+ 	}
+ 
++	if (dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") &&
++	    dmi_match(DMI_PRODUCT_NAME, "Surface Pro 9"))
++		snd_hda_pick_fixup(codec, NULL, alc269_surface_pro9_tbl,
++				   alc269_fixups);
++
+ 	snd_hda_pick_pin_fixup(codec, alc269_pin_fixup_tbl, alc269_fixups, true);
+ 	snd_hda_pick_pin_fixup(codec, alc269_fallback_pin_fixup_tbl, alc269_fixups, false);
+ 	snd_hda_pick_fixup(codec, NULL,	alc269_fixup_vendor_tbl,
+-- 
+2.43.0
+
