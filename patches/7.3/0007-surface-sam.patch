@@ -209,3 +209,71 @@ index d37a7e4c6b0..e0c07e5d8ec 100644
 -- 
 2.56.0
 
+From 53f532df1b3932f18e50980774a8e2261780d1a2 Mon Sep 17 00:00:00 2001
+From: Wu Enqiang <janussss@163.com>
+Date: Sat, 24 Oct 2026 13:49:21 +0800
+Subject: [PATCH] surface: aggregator: propagate -EPROBE_DEFER from
+ ssam_irq_setup()
+
+gpiod_get() can fail with -EPROBE_DEFER when the GPIO controller
+providing the "ssam_wakeup-int" GPIO has not been probed yet. The
+current error path falls back to fwnode_irq_get(), which returns
+-EINVAL because this device only declares GPIO resources. The probe
+then fails hard and is never retried.
+
+This has been reported across various Surface devices since v6.12,
+including the Pro 6 and Pro 9 that were used to reproduce it. With
+the SSAM controller down, dependent ACPI devices, e.g. the battery
+with its _DEP on the SAN node, are never enumerated and battery
+status is missing.
+
+Use gpiod_get_optional() and propagate errors to the caller so that
+probing is deferred until the GPIO controller becomes available. Only
+when no wakeup GPIO is described at all, fall back to fwnode_irq_get().
+
+Fixes: b27622f13172 ("platform/surface: Add OF support")
+Reported-by: Chris Simpson <chris@nilk.net>
+Link: https://lore.kernel.org/platform-driver-x86/d0bb21cc-6d3c-4526-8204-2511da51a6ac@nilk.net
+Link: https://github.com/linux-surface/linux-surface/issues/2219
+Tested-by: Chris Simpson <chris@nilk.net>
+Tested-by: Wu Enqiang <janussss@163.com>
+Cc: stable@vger.kernel.org
+Signed-off-by: Wu Enqiang <janussss@163.com>
+Link: https://patchwork.kernel.org/project/platform-driver-x86/patch/20261024054921.48209-1-janussss@163.com/
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 6a8430cb9cbf..8846d22c60b1 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -2753,12 +2753,20 @@ int ssam_irq_setup(struct ssam_controller *ctrl)
+ 	 */
+ 	const int irqf = IRQF_ONESHOT | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN;
+ 
+-	gpiod = gpiod_get(dev, "ssam_wakeup-int", GPIOD_ASIS);
+-	if (IS_ERR(gpiod)) {
+-		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+-	} else {
++	/*
++	 * Only fall back to the fwnode IRQ if no wakeup GPIO is described
++	 * at all. Any other error, in particular -EPROBE_DEFER while the
++	 * GPIO controller has not been registered yet, must reach the probe.
++	 */
++	gpiod = gpiod_get_optional(dev, "ssam_wakeup-int", GPIOD_ASIS);
++	if (IS_ERR(gpiod))
++		return PTR_ERR(gpiod);
++
++	if (gpiod) {
+ 		irq = gpiod_to_irq(gpiod);
+ 		gpiod_put(gpiod);
++	} else {
++		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+ 	}
+ 
+ 	if (irq < 0)
+-- 
+2.56.0
+
