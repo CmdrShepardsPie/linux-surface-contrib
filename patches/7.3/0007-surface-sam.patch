@@ -277,3 +277,150 @@ index 6a8430cb9cbf..8846d22c60b1 100644
 -- 
 2.56.0
 
+From 0ed12682e4d23cda2479eee45ec449a52848b16a Mon Sep 17 00:00:00 2001
+From: Chris Simpson <chris@nilk.net>
+Date: Thu, 5 Nov 2026 09:43:53 -0700
+Subject: [PATCH] power: supply: surface_battery: Report not charging while
+ idle on AC
+
+While the EC holds the charge level below full, the battery is idle and
+the adapter powers the device, but the battery keeps reporting a small
+rate that is not always zero, and the discharging bit is sometimes set.
+Status then flickers between "Not charging", "Unknown" and "Discharging"
+with the adapter online.
+
+On a Surface Pro 9 held at 78% on AC, reads one to two seconds apart
+returned all three statuses. Over six minutes, half of it under full CPU
+load, the rate stayed under 100 mW apart from two spikes of two seconds,
+at most 671 mW. Idle reads in the same session reached 953 mW. The
+capacity did not move.
+
+When the rate is at most 1000 mW, ask the EC for the power source. If it
+is the adapter, report not charging, regardless of the discharging bit.
+A larger rate is reported as before. Charging, and full with no state bit
+set, are unchanged, but a small rate with the discharging bit set now
+reports not charging when full, or when the charging bit is also set.
+
+A real drain below 1000 mW on an adapter too weak for the load therefore
+reads as not charging. So that low battery warnings still work, the rule
+is off below 20% capacity, when the battery reports critical, or when the
+capacity is not known. It is also off on devices reporting in mA, as the
+cutoff is a power.
+
+The request goes directly to the EC, as a read through the adapter's power
+supply can consume its change notification. It uses the adapter's target
+and instance on all devices. The readings above are from before this
+change, on a Surface Pro 9 only.
+
+This change has been compiled against v7.3.1 but has not yet run on a
+device.
+
+Assisted-by: LLM
+Patchset: surface-sam
+---
+ drivers/power/supply/surface_battery.c | 61 +++++++++++++++++++++++++-
+ 1 file changed, 59 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
+index 1273b6082..c5f3bf9bb 100644
+--- a/drivers/power/supply/surface_battery.c
++++ b/drivers/power/supply/surface_battery.c
+@@ -102,6 +102,17 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
+ 	.command_id      = 0x03,
+ });
+ 
++/*
++ * Get platform power source (_PSR / DPTF PSRC). The adapter status seems to be
++ * global and handled via target 1, instance 1, see surface_charger.c.
++ */
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bat_get_psrc, __le32, {
++	.target_category = SSAM_SSH_TC_BAT,
++	.target_id       = SSAM_SSH_TID_SAM,
++	.command_id      = 0x0d,
++	.instance_id     = 0x01,
++});
++
+ /* Set battery trip point (_BTP). */
+ SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
+ 	.target_category = SSAM_SSH_TC_BAT,
+@@ -152,6 +163,19 @@ MODULE_PARM_DESC(cache_time, "battery state caching time in milliseconds [defaul
+  */
+ #define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
+ 
++/*
++ * Largest rate treated as idle rather than real flow into or out of the
++ * battery. It covers the small rates reported while idle and the short spikes
++ * seen among them. See spwr_battery_idle_on_ac() below.
++ */
++#define SPWR_BATTERY_IDLE_RATE_MW	1000
++
++/*
++ * Below this capacity (in percent) a small rate is not treated as idle, so that
++ * low battery warnings keep working on an adapter too weak for the load.
++ */
++#define SPWR_BATTERY_IDLE_MIN_CAPACITY	20
++
+ static bool spwr_battery_present(struct spwr_battery_device *bat)
+ {
+ 	lockdep_assert_held(&bat->lock);
+@@ -461,6 +485,38 @@ static const enum power_supply_property spwr_battery_props_eng[] = {
+ 	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+ };
+ 
++static int spwr_battery_prop_capacity(struct spwr_battery_device *bat);
++
++/*
++ * While the EC holds the charge level below full, the adapter powers the
++ * device and the battery is idle. The fuel gauge then reports a small rate that
++ * is not always zero, and the discharging bit may be set. Ask the EC for the
++ * power source instead of trusting those.
++ */
++static bool spwr_battery_idle_on_ac(struct spwr_battery_device *bat)
++{
++	__le32 psrc;
++
++	lockdep_assert_held(&bat->lock);
++
++	if (get_unaligned_le32(&bat->bix.power_unit) != SAM_BATTERY_POWER_UNIT_mW)
++		return false;
++
++	if (get_unaligned_le32(&bat->bst.state) & SAM_BATTERY_STATE_CRITICAL)
++		return false;
++
++	if (spwr_battery_prop_capacity(bat) < SPWR_BATTERY_IDLE_MIN_CAPACITY)
++		return false;
++
++	if (get_unaligned_le32(&bat->bst.present_rate) > SPWR_BATTERY_IDLE_RATE_MW)
++		return false;
++
++	if (ssam_retry(ssam_bat_get_psrc, bat->sdev->ctrl, &psrc))
++		return false;
++
++	return le32_to_cpu(psrc) != 0;
++}
++
+ static int spwr_battery_prop_status(struct spwr_battery_device *bat)
+ {
+ 	u32 state = get_unaligned_le32(&bat->bst.state);
+@@ -469,7 +525,8 @@ static int spwr_battery_prop_status(struct spwr_battery_device *bat)
+ 	lockdep_assert_held(&bat->lock);
+ 
+ 	if (state & SAM_BATTERY_STATE_DISCHARGING)
+-		return POWER_SUPPLY_STATUS_DISCHARGING;
++		return spwr_battery_idle_on_ac(bat) ? POWER_SUPPLY_STATUS_NOT_CHARGING :
++						      POWER_SUPPLY_STATUS_DISCHARGING;
+ 
+ 	if (state & SAM_BATTERY_STATE_CHARGING)
+ 		return POWER_SUPPLY_STATUS_CHARGING;
+@@ -477,7 +534,7 @@ static int spwr_battery_prop_status(struct spwr_battery_device *bat)
+ 	if (spwr_battery_is_full(bat))
+ 		return POWER_SUPPLY_STATUS_FULL;
+ 
+-	if (present_rate == 0)
++	if (present_rate == 0 || spwr_battery_idle_on_ac(bat))
+ 		return POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 
+ 	return POWER_SUPPLY_STATUS_UNKNOWN;
+-- 
+2.56.0
+
